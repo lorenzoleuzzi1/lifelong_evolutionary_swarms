@@ -39,6 +39,7 @@ REWARD_RIGHT_PUTDOWN = 20
 REWARD_WRONG_PICKUP = -5
 REWARD_WRONG_PUTDOWN = -10
 REWARD_MOVING_RIGHT_DIRECTION = 2
+REWARD_MOVING_WRONG_DIRECTION = -1
 REWARD_MOVE = -1
 
 class Environment(gym.Env):
@@ -299,10 +300,10 @@ class Environment(gym.Env):
                             # Reward the agent for picking up the block if in objective or not
                             if self.blocks_color[j] in [obj[0] for obj in self.objective]:
                                 self._rewards[i] += REWARD_RIGHT_PICKUP
-                            else:
-                                self._rewards[i] += REWARD_WRONG_PICKUP
-                else:
-                    self._rewards[i] += REWARD_MOVE
+                            # else:
+                            #     self._rewards[i] += REWARD_WRONG_PICKUP
+                        
+                # self._rewards[i] += REWARD_MOVE
             
             if action[i]['action'] == PUT_DOWN:
                 if self._agents_picked_up[i] != -1: # If the agent is carrying a block
@@ -327,10 +328,10 @@ class Environment(gym.Env):
                                     elif edge == BOTTOM_EDGE and self.blocks_location[j][0] > self.size - 1 - self._sensitivity:
                                         self._rewards[i] += REWARD_RIGHT_PUTDOWN
                                         self._completed.append(i)
-                                    else:
-                                        self._rewards[i] += REWARD_WRONG_PUTDOWN
-                else:
-                    self._rewards[i] += REWARD_MOVE
+                                    # else:
+                                    #     self._rewards[i] += REWARD_WRONG_PUTDOWN
+                # else:
+                #     self._rewards[i] += REWARD_MOVE
 
             if action[i]['action'] == MOVE:
                 # Map the action to the direction we walk in
@@ -380,8 +381,8 @@ class Environment(gym.Env):
                         elif target_edge == BOTTOM_EDGE:
                             if direction > 315 or direction < 45: # Moving down
                                 self._rewards[i] += distance * REWARD_MOVING_RIGHT_DIRECTION
-
-                self._rewards[i] += REWARD_MOVE # Punish the agent for timestep (force efficiency)? TODO: check if it's necessary
+                        # else:
+                        #     self._rewards[i] += distance * REWARD_MOVING_WRONG_DIRECTION
 
         observation = self._get_obs()
 
