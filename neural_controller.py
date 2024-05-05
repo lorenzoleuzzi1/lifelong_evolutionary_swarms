@@ -1,35 +1,48 @@
 import numpy as np
 
 class NeuralController:
-    def __init__(self, layer_sizes, weights=None, activation="relu"):
+    def __init__(self, layer_sizes, weights=None, hidden_activation="relu", output_activation="linear"):
         self.layer_sizes = layer_sizes
         self.weights = weights
-        self.activation = activation
-        assert activation in ["relu", "sigmoid"], "Activation must be either 'relu' or 'sigmoid'"
+        self.activation = hidden_activation
+        self.output_activation = output_activation
+        assert hidden_activation in ["relu", "sigmoid", "tanh"],\
+            "Activation must be either 'relu' or 'sigmoid' or 'tanh'"
+        assert output_activation in ["linear", "sigmoid", "softmax", "tanh"],\
+            "Output activation must be either 'linear' or 'sigmoid' or 'softmax' or 'tanh'" 
         self.total_weights = sum((layer_sizes[i] + 1) * layer_sizes[i+1] for i in range(len(layer_sizes) - 1))
     
     def predict(self, X):
         a = X
-        for weight, bias in self.weights[:-1]:  # Apply ReLU to all layers except the last
+        for weight, bias in self.weights[:-1]:  # Forward pass
             z = np.dot(a, weight) + bias
             if self.activation == "relu":
                 a = np.maximum(0, z)
-            else:
+            if self.activation == "sigmoid":
                 a = 1 / (1 + np.exp(-z)) # Sigmoid activation
+            if self.activation == "tanh":
+                a = np.tanh(z)
         
-        # Linear activation for the last layer
         final_weight, final_bias = self.weights[-1]
         output = np.dot(a, final_weight) + final_bias
+        
+        # Activation for the last layer
+        if self.output_activation == "sigmoid":
+            output = 1 / (1 + np.exp(-output))
+        if self.output_activation == "softmax":
+            output = np.exp(output) / np.sum(np.exp(output), axis=1, keepdims=True)
+        if self.output_activation == "tanh":
+            output = np.tanh(output)
+        
         return output
     
     def set_weights_from_vector(self, w):
         if w is None:
-            self.weights = None
-            return
-        if len(w) != self.total_weights:
-            raise ValueError(f"Expected {self.total_weights} weights, but got {len(w)}")
+            raise ValueError(f"None weights provided, expected {self.total_weights} weights.")
         if not isinstance(w, np.ndarray):
             w = np.array(w)
+        if len(w) != self.total_weights:
+            raise ValueError(f"Expected {self.total_weights} weights, but got {len(w)}")
         
         self.weights = []
         start = 0

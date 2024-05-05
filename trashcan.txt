@@ -1,0 +1,160 @@
+def step(self, action):
+        
+        self._rewards = np.zeros(self.n_agents)
+
+        for i in range(self.n_agents):
+            
+            if action[i]['action'] == RANDOM_WALK:
+                # Map the action to the direction we walk in
+                direction = self.np_random.uniform(0, 360)
+                distance = self.np_random.uniform(0, self.max_distance_covered_per_step)
+                
+                # Calculate the new position
+                direction_radians = np.radians(direction)
+                dx = round(distance * np.cos(direction_radians), 5)
+                dy = round(distance * np.sin(direction_radians), 5)
+                # `np.clip` to make sure we don't leave the grid
+                new_x = np.clip(self.agents_location[i][0] + dx, 0, self.size - 1)
+                new_y = np.clip(self.agents_location[i][1] + dy, 0, self.size - 1)
+                new_position = np.array([new_x, new_y])
+                self.agents_location[i] = new_position
+            
+            self._rewards[i] += REWARD_MOVE # Punish the agent for moving for enforce efficiency
+
+            if action[i]['action'] == PICK:
+                successful_pick = False
+                if self._agents_picked_up[i] == -1: # If the agent is not carrying a block
+                    for j in range(self.n_blocks):
+                        # If the agent is in the same location as the block
+                        if np.linalg.norm(self.agents_location[i] - self.blocks_location[j]) < self.sensitivity: 
+                            successful_pick = True
+                            self.blocks_location[j] = [-1,-1] # Set as picked up
+                            self._agents_picked_up[i] = self.blocks_color[j] # The agent knows the color of the block it picked up
+                            self._blocks_picked_up[j] = i # The block is picked up by the agent
+
+                            # Reward the agent for picking up the block if in objective or not
+                            if self.blocks_color[j] in self._objective_colors:
+                                self._rewards[i] += REWARD_CORRECT_PICK
+                            else:
+                                self._rewards[i] += REWARD_WRONG_PICK
+                            break
+                if not successful_pick:
+                    self._rewards[i] += REWARD_MOVE # Punish the agent for picking nothing
+
+            
+            if action[i]['action'] == DROP:
+                
+                else:
+                    self._rewards[i] += REWARD_MOVE # Punish the agent for dropping nothing
+
+            if action[i]['action'] == MOVE:
+                # Map the action to the direction we walk in
+                distance, direction = action[i]['move']
+                
+                # Calculate the new position
+                direction_radians = direction
+                if direction > 180:
+                    direction_radians -= 360
+                direction_radians = np.radians(direction)
+                dx = round(distance * np.cos(direction_radians), 5)
+                dy = round(distance * np.sin(direction_radians), 5)
+                # `np.clip` to make sure we don't leave the grid
+                new_x = np.clip(self.agents_location[i][0] + dx, 0, self.size - 1)
+                new_y = np.clip(self.agents_location[i][1] + dy, 0, self.size - 1)
+                new_position = np.array([new_x, new_y])
+
+                # Check if the new position is not too close to another agent
+                agent_locations_but_i = np.delete(self.agents_location, i, axis=0)
+                differences = new_position - agent_locations_but_i
+                distances = np.linalg.norm(differences, axis=1)
+                occupied_by_agent = np.any(distances < self.sensitivity)
+                # Check if the new position is not too close to a block while carrying one (can't pick up two blocks)
+                occupied_by_block_while_carrying = np.any(np.linalg.norm(new_position - self.blocks_location, axis=1) < self.sensitivity) and self._agents_picked_up[i] != -1
+                # Same poisition as before considering sensitvity
+                same_position = np.linalg.norm(new_position - self.agents_location[i]) < self.sensitivity
+                
+                # Move the agent if the new position is not occupied by another agent or a block while carrying
+                if not occupied_by_agent and not occupied_by_block_while_carrying and not same_position:
+                    self.agents_location[i] = new_position
+
+                    # Reward the agent for moving toward the detected objects
+                    if self._agents_picked_up[i] == -1: # If the agent is not carrying a block
+                        for neighbor in self._neighbors[i]:
+                            if neighbor[0] in self._objective_colors:
+                                direction_difference_object = abs(direction - neighbor[2]) # Calculate the absolute difference
+                                direction_difference_object = min(direction_difference_object, 360 - direction_difference_object) # Adjust for cases where the difference is more than 180°
+                                direction_difference_object = max(1 - (direction_difference_object / 45), 0)  # Normalized to [0, 1]
+                                
+                                self._rewards[i] += REWARD_CORRECT_MOVE * direction_difference_object
+                    
+                    # Reward the agent to have moved near the objective (so it can pick it up)
+                    if self._agents_picked_up[i] == -1: # If the agent is not carrying a block
+                        for j in range(self.n_blocks):
+                            if np.linalg.norm(self.agents_location[i] - self.blocks_location[j]) < self.sensitivity:
+                                if self.blocks_color[j] in self._objective_colors:
+                                    self._rewards[i] += REWARD_CORRECT_MOVE
+                                break
+                    
+                    # # Punish the agent for moving away the objective
+                    # if self._agents_picked_up[i] == -1:
+                    #     for j in range(self.n_blocks):
+                    #         if np.linalg.norm(self.agents_location[i] - self.blocks_location[j]) < self.sensitivity:
+                    #             if self.blocks_color[j] not in self._objective_colors:
+                    #                 self._rewards[i] += REWARD_WRONG_MOVE
+                    #             break
+                    # TODO: penalize collisions with other agents, walls, and blocks
+                    # Reward the agent for moving in the right direction while carrying
+                    if self._agents_picked_up[i] in self._objective_colors: # If the agent is carrying a objective block
+                        target_edge = self.objective[self._objective_colors.index(self._agents_picked_up[i])][1]
+                        
+                        direction_difference_edge = abs(direction - target_edge) # Calculate the absolute difference
+                        direction_difference_edge = min(direction_difference_edge, 360 - direction_difference_edge) # Adjust for cases where the difference is more than 180°
+                        direction_difference_edge = max(1 - (direction_difference_edge / 45), 0)  # Normalized to [0, 1]
+
+                        self._rewards[i] += REWARD_CORRECT_MOVE * distance * direction_difference_edge 
+        
+        self._detect()
+        observations = []
+        for i in range(self.n_agents):
+            observation = self._get_obs(i)
+
+            # for neighbor in observation['neighbors']:
+            #     if neighbor[0] in self._objective_colors:
+            #         self._rewards[i] +=  REWARD_DETECTING - neighbor[1] # Reward the agent for moving towards the objective
+            
+            observations.append(observation)
+        
+        done = False
+        # Check if the shared objective is met
+        if len(self._completed) == self._task_counter:
+            done = True
+
+        reward = sum(self._rewards) # Sum the rewards of all agents of the swarm
+        info = {"completed": self._completed}
+        truncated = False
+        
+        return observations, reward, done, truncated, info
+    
+
+
+
+
+
+    no_detections = []
+            for o in obs:
+                # If it has no neighbors and it is not carrying a block
+                no_detections.append(np.all(o['neighbors'][0] == 0) and o['carrying'] == -1)
+            
+            random_actions = env.action_space.sample()
+            if (len(no_detections) - sum(no_detections)) != env.n_agents: # If there is at least one agent with neighbors
+                nn_inputs = env.process_observation(obs)
+                nn_outputs = np.array(network.predict(nn_inputs))
+                actions = np.round(nn_outputs * np.array([env.max_distance_covered_per_step, env.sensor_angle]), 1)
+                
+                for i in range(env.n_agents):
+                    if no_detections[i]:
+                        actions[i]= random_actions[i]
+            else:
+                actions = random_actions
+
+            obs, reward, done, _, _ = env.step(actions)
