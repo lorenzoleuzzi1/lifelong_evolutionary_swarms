@@ -33,13 +33,8 @@ PURPLE = 7
 ORANGE = 8
 GREY = 9
 
-REWARD_CORRECT_PICK = 5
-REWARD_CORRECT_DROP = 10
-REWARD_WRONG_PICK = -5
-REWARD_WRONG_DROP = -10
-REWARD_CORRECT_MOVE = 2
-REWARD_WRONG_MOVE = -1
-REWARD_MOVE = -1
+REWARD_PICK = 1
+REWARD_DROP = 2
 
 # MOVE = 0
 # PICK = 1
@@ -50,6 +45,7 @@ class Environment(gym.Env):
 
     def __init__(
             self, 
+            nest = NORTH_EDGE,
             objective = [(RED, NORTH_EDGE)], # objective is a list of tuples (color, edge)
             seed=None,
             size=100, 
@@ -58,10 +54,12 @@ class Environment(gym.Env):
             n_neighbors = 4,
             sensor_range = 2,
             sensor_angle = 360,
-            max_distance_covered_per_step = 5,
-            sensitivity = 0.5, # How close the agent can get to the block to pick it up 
+            max_distance_covered_per_step = 2,
+            sensitivity = 0.2, # How close the agent can get to the block to pick it up 
             initial_setting = None
             ):
+        
+        self.nest = nest  # The nest location
         self.objective = objective
         self._objective_colors = [obj[0] for obj in objective]
         self._task_completed = []
@@ -78,6 +76,7 @@ class Environment(gym.Env):
         self.blocks_location = np.zeros((self.n_blocks, 2), dtype=float)
         self.blocks_color = np.zeros(self.n_blocks, dtype=int)
         self._blocks_picked_up = np.full(self.n_blocks, -1, dtype=int)
+        self._blocks_initial_distance_to_dropzone = np.full(self.n_blocks, -1, dtype=float)
         
         self.sensitivity = sensitivity # How close to interact
         self.n_neighbors = n_neighbors
@@ -265,28 +264,46 @@ class Environment(gym.Env):
             self.blocks_location = self._initial_setting['blocks'].copy()
             self.blocks_color = self._initial_setting['colors'].copy()
         else:
-            # Choose the agent's location uniformly at random
-            # TODO: make them spawn in a "nest"
+            # Choose the location at random
             for i in range(self.n_agents):
                 # Check if the agents are not spawning in the same location
                 while True:
-                    self.agents_location[i] = self.np_random.uniform(0, self.size, size=2)
+                    # Spawn the agents in the nest
+                    if self.nest == NORTH_EDGE:
+                        self.agents_location[i][0] = 0
+                        self.agents_location[i][1] = self.np_random.uniform(0, self.size)
+                    elif self.nest == SOUTH_EDGE:
+                        self.agents_location[i][0] = self.size - 1
+                        self.agents_location[i][1] = self.np_random.uniform(0, self.size)
+                    elif self.nest == WEST_EDGE:
+                        self.agents_location[i][0] = self.np_random.uniform(0, self.size)
+                        self.agents_location[i][1] = 0
+                    elif self.nest == EAST_EDGE:
+                        self.agents_location[i][0] = self.np_random.uniform(0, self.size)
+                        self.agents_location[i][1] = self.size - 1
                     if i == 0 or not np.any(np.linalg.norm(self.agents_location[i] - self.agents_location[:i], axis=1) < self.sensitivity):
                         break
 
-            for i in range(self.n_blocks):
+            for i in range(self.n_blocks - 1):
                 # Check if the blocks are not spawning in the same location
                 while True:
-                    self.blocks_location[i] = self.np_random.uniform(0, self.size, size=2)
+                    self.blocks_location[i] = self.np_random.uniform(2, self.size - 2, size=2)
                     if i == 0 or not np.any(np.linalg.norm(self.blocks_location[i] - self.blocks_location[:i], axis=1) < self.sensitivity):
                         break
                 self.blocks_color[i] = self.np_random.integers(3, 3 + len(self._colors_map), dtype=int)
+            # At least one block is objective
+            self.blocks_location[self.n_blocks - 1] = self.np_random.uniform(2, self.size - 2, size=2)
+            self.blocks_color[self.n_blocks - 1] = self.objective[0][0]
+
         
-        self._n_task = 0
+        for i in range(self.n_blocks):
+            self._blocks_initial_distance_to_dropzone[i] = self._get_distance_to_objective_edge(self.blocks_location[i], self.blocks_color[i])
+        
+        self.n_task = 0
         for color, _ in self.objective:
             for i in range(self.n_blocks):
                 if self.blocks_color[i] == color:
-                    self._n_task += 1
+                    self.n_task += 1
         
         self._rewards = np.zeros(self.n_agents)
         self._task_completed = []
@@ -325,6 +342,8 @@ class Environment(gym.Env):
         return False
 
     def _get_distance_to_objective_edge(self, agent, block_color):
+        if block_color not in self._objective_colors:
+            return -1
         target_edge = self.objective[self._objective_colors.index(block_color)][1]
         if target_edge == NORTH_EDGE:
             target_position = np.array([0, agent[1]])
@@ -336,6 +355,14 @@ class Environment(gym.Env):
             target_position = np.array([agent[0], self.size - 1])
         
         return np.linalg.norm(agent - target_position)
+    
+    def _get_bootstrap_reward_pick(self, distance, step_inside_sensor_range = False):
+        if step_inside_sensor_range:
+            return (distance * (REWARD_PICK / 2)) / self.sensor_range
+        return ((self.sensor_range - distance) * (REWARD_PICK / 2)) / self.sensor_range
+    
+    def _get_bootstrap_reward_drop(self, distance, j):
+        return (distance * (REWARD_DROP / 2)) / self._blocks_initial_distance_to_dropzone[j]
         
     def step(self, action):
         
@@ -382,6 +409,7 @@ class Environment(gym.Env):
                 
                 flag_pick = False
                 flag_drop = False
+                
                 # --- PICK ---
                 # Check if the agent is picking up a block
                 for j in range(self.n_blocks):
@@ -393,10 +421,10 @@ class Environment(gym.Env):
                         flag_pick = True
                         # Reward the agent for picking up the block
                         if self.blocks_color[j] in self._objective_colors:
-                            self._rewards[i] += REWARD_CORRECT_PICK + distance
+                            self._rewards[i] += (REWARD_PICK / 2) + self._get_bootstrap_reward_pick(distance, True)
                             self._agents_closest_objective_distance[i] = self._get_distance_to_objective_edge(self.agents_location[i], self.blocks_color[j])
                         else:
-                            self._rewards[i] += REWARD_WRONG_PICK
+                            self._rewards[i] -= REWARD_PICK
                         
                         # Pick the block
                         self.blocks_location[j] = [-1,-1] 
@@ -417,10 +445,10 @@ class Environment(gym.Env):
                                 self._task_completed.append( (self._agents_carrying[i], 
                                                               self.blocks_color[self._agents_carrying[i]],i ))
                                 self.blocks_location[self._agents_carrying[i]] = [-1,-1]
-                                self._rewards[i] += REWARD_CORRECT_DROP + distance
+                                self._rewards[i] += (REWARD_DROP / 2) + self._get_bootstrap_reward_drop(distance, self._agents_carrying[i])
                             else:
                                 self.blocks_location[self._agents_carrying[i]] = self.agents_location[i]
-                                self._rewards[i] += REWARD_WRONG_DROP
+                                self._rewards[i] -= REWARD_DROP
                             
                             # Drop the block
                             self._blocks_picked_up[self._agents_carrying[i]] = -1
@@ -435,7 +463,8 @@ class Environment(gym.Env):
                     continue
                 
                 # --- REWARD MOVEMENTS ---
-                # Reward the agent for moving towards the an objective block while not carrying anything
+                # Bootstrap the reward system
+                # Reward the agent for moving towards an objective block while not carrying anything
                 if self._agents_carrying[i] == -1:
                     agent_previous_closest_objective_distance = self._agents_closest_objective_distance[i]
                     for j in range(self.n_neighbors):
@@ -445,22 +474,26 @@ class Environment(gym.Env):
                             else:
                                 self._agents_closest_objective_distance[i] = -1
                     if (agent_previous_closest_objective_distance == -1 and self._agents_closest_objective_distance[i] != -1):
-                        self._rewards[i] += self.sensor_range - self._agents_closest_objective_distance[i]
+                        # If the block was outside the sensor range in the previous step and now it is inside
+                        # Reward for getting closer
+                        self._rewards[i] += self._get_bootstrap_reward_pick(self._agents_closest_objective_distance[i])
                     
                     if (agent_previous_closest_objective_distance != -1 and self._agents_closest_objective_distance[i] == -1):
-                        self._rewards[i] -= self.sensor_range - agent_previous_closest_objective_distance
+                        # If the block was inside the sensor range in the previous step and now it is outside
+                        # Penalize for getting further
+                        self._rewards[i] -= self._get_bootstrap_reward_pick(agent_previous_closest_objective_distance)
 
                     if (agent_previous_closest_objective_distance != -1 and self._agents_closest_objective_distance[i] != -1):
                         difference_objective_distance = agent_previous_closest_objective_distance - self._agents_closest_objective_distance[i]
-                        self._rewards[i] += difference_objective_distance
+                        self._rewards[i] += self._get_bootstrap_reward_pick(difference_objective_distance, True)
 
-                # Reward the agent for carrying an objective block and moving towards the drop zone
+                # Reward the agent for carrying a correct block towards the drop zone
                 if self._agents_carrying[i] != -1 and self.blocks_color[self._agents_carrying[i]] in self._objective_colors:
                     agent_previous_closest_objective_distance = self._agents_closest_objective_distance[i]
                     self._agents_closest_objective_distance[i] = self._get_distance_to_objective_edge(self.agents_location[i], self.blocks_color[self._agents_carrying[i]])
                     difference_objective_distance = agent_previous_closest_objective_distance - self._agents_closest_objective_distance[i]
-                    self._rewards[i] += difference_objective_distance
-                # ------------------------
+                    self._rewards[i] += self._get_bootstrap_reward_drop(difference_objective_distance, self._agents_carrying[i])
+                # # ------------------------
 
                      
 
@@ -471,7 +504,7 @@ class Environment(gym.Env):
         
         done = False
         # Check if the shared objective is met
-        if len(self._task_completed) == self._n_task:
+        if len(self._task_completed) == self.n_task:
             done = True
 
         reward = sum(self._rewards) # Sum the rewards of all agents of the swarm
