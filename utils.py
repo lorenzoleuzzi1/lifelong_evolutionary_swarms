@@ -1,7 +1,11 @@
 import matplotlib.pyplot as plt
 import numpy as np
+import neat
+import environment
+import neural_controller
+from deap import tools
 
-def plot_data(bests, avgs = None, medians = None, stds = None, completion_fitness = None):
+def plot_data(bests, avgs = None, medians = None, stds = None, completion_fitness = None, filename = None):
     x_values = np.arange(len(np.array(avgs)))
     plt.plot(bests, label="best")
     
@@ -16,4 +20,12 @@ def plot_data(bests, avgs = None, medians = None, stds = None, completion_fitnes
     
     plt.legend()
     plt.title("Fitness over generations")
-    plt.show()
+    
+    if filename is not None:
+        plt.savefig(filename)
+    else:
+        plt.show()
+
+def selElitistAndTournament(individuals, k, frac_elitist = 0.1, tournsize = 3):
+    # TODO: not really elitism
+    return tools.selBest(individuals, int(k*frac_elitist)) + tools.selTournament(individuals, int(k*(1-frac_elitist)), tournsize=tournsize)

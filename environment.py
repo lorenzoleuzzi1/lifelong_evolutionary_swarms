@@ -58,7 +58,7 @@ class Environment(gym.Env):
             sensitivity = 0.2, # How close the agent can get to the block to pick it up 
             initial_setting = None
             ):
-        
+        # TODO: if passing initial setting, no need to n_agents, n_blocks
         self.nest = nest  # The nest location
         self.objective = objective
         self._objective_colors = [obj[0] for obj in objective]
