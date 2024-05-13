@@ -2,25 +2,23 @@ import numpy as np
 
 import gymnasium as gym
 from gymnasium import spaces
-from math import sqrt, atan2, degrees
 
-TIME_PER_STEP = 1 # a step in seconds
+TIME_PER_STEP = 0.2 # a step in seconds, 200 ms, typical is 100ms
 ROBOT_SIZE = 25 # in cm (diameter)
-SENSOR_RANGE = 50 # in cm
-MAX_VELOCITY = 200 # in cm/s
-VELOCITY = 50 # initial 0 max 200, in cm/s, 50 assumed velocity in cm/s
-MAX_DISTANCE = VELOCITY * TIME_PER_STEP # in cm
+SENSOR_RANGE = 100 # in cm
+MAX_WHEEL_VELOCITY = 100 # in cm/s, in the papers was 200 cm/s but it's fine
 ARENA_SIZE = 500 # in cm
 
-SIMULATION_ROBOT_SIZE = ROBOT_SIZE / ROBOT_SIZE # 1
-SIMULATION_SENSOR_RANGE = SENSOR_RANGE / ROBOT_SIZE # 3
-SIMULATION_MAX_DISTANCE = MAX_DISTANCE / ROBOT_SIZE # 2
-SIMULATION_ARENA_SIZE = ARENA_SIZE / ROBOT_SIZE # 20
+SIMULATION_ROBOT_SIZE = ROBOT_SIZE / ROBOT_SIZE 
+SIMULATION_SENSOR_RANGE = SENSOR_RANGE / ROBOT_SIZE 
+# SIMULATION_MAX_DISTANCE = MAX_DISTANCE / ROBOT_SIZE 
+SIMULATION_MAX_WHEEL_VELOCITY = MAX_WHEEL_VELOCITY / ROBOT_SIZE
+SIMULATION_ARENA_SIZE = ARENA_SIZE / ROBOT_SIZE 
 
-NORTH_EDGE = 180
-EAST_EDGE = 90
-WEST_EDGE = 270
-SOUTH_EDGE = 0
+UP = 0 
+LEFT = 90
+DOWN = 180
+RIGHT = 270
 
 NOTHING = 0
 WALL = 1
@@ -35,18 +33,33 @@ GREY = 9
 
 REWARD_PICK = 1
 REWARD_DROP = 2
+REWARD_COLLISION = -1
 
-# MOVE = 0
-# PICK = 1
-# DROP = 2
-# RANDOM_WALK = 3
+# Kinematic matrix from the transformation
+A = np.array([[-0.28867513, -0.57735027, 0.8660254],[ 0.5, -1, 0.5],[0.5, 0, 0.5]])
+
+# v1, v2, v3 values (three omniwheels)
+MOVE_UP =  [0.8660254, 0, -0.8660254]
+MOVE_RIGHT =  [0.5, -1, -0.5]
+MOVE_UP_RIGHT = [1.3660254, -1, 1.3660254]
+MOVE_DOWN_RIGHT = [-0.3660254, -1., 0.3660254]
+MOVE_DOWN = [-0.8660254, 0., 0.8660254]
+MOVE_DOWN_LEFT = [-1.3660254, 1., 1.3660254]
+MOVE_LEFT = [-0.5, 1., 0.5]
+MOVE_UP_LEFT = [0.3660254, 1. -0.3660254]
+ROTATE_POSITIVE = [1.57079633, 1.57079633, 1.57079633]
+ROTATE_NEGATIVE = [3.14159265, 3.14159265, 3.14159265]
+
+# TODO: mind the collision... now it's checked only the position where they are getting
+# TODO: make change direction when reaching an edge, they should learn it via evolution
+# TODO: check for more speed optimization in the code
 
 class Environment(gym.Env):
 
     def __init__(
             self, 
-            nest = NORTH_EDGE,
-            objective = [(RED, NORTH_EDGE)], # objective is a list of tuples (color, edge)
+            nest = UP,
+            objective = [(RED, UP)], # objective is a list of tuples (color, edge) # TODO: maybe only 1 onjective
             seed=None,
             size=100, 
             n_agents=3, 
@@ -54,7 +67,7 @@ class Environment(gym.Env):
             n_neighbors = 4,
             sensor_range = 2,
             sensor_angle = 360,
-            max_distance_covered_per_step = 2,
+            max_wheel_velocity = 1,
             sensitivity = 0.2, # How close the agent can get to the block to pick it up 
             initial_setting = None
             ):
@@ -71,12 +84,18 @@ class Environment(gym.Env):
         self.agents_location = np.zeros((self.n_agents, 2), dtype=float)
         self._agents_carrying = np.full(self.n_agents, -1, dtype=int)
         self._agents_closest_objective_distance = np.full(self.n_agents, -1, dtype=float)
+        self.agents_heading = np.zeros(self.n_agents, dtype=float)
 
         self.n_blocks = n_blocks
         self.blocks_location = np.zeros((self.n_blocks, 2), dtype=float)
         self.blocks_color = np.zeros(self.n_blocks, dtype=int)
         self._blocks_picked_up = np.full(self.n_blocks, -1, dtype=int)
         self._blocks_initial_distance_to_dropzone = np.full(self.n_blocks, -1, dtype=float)
+
+        self._distance_matrix_agent_agent = np.zeros((self.n_agents, self.n_blocks), dtype=float)
+        self._direction_matrix_agent_agent = np.zeros((self.n_agents, self.n_blocks), dtype=float)
+        self._distance_matrix_agent_agent = np.zeros((self.n_agents, 4), dtype=float)
+        self._direction_matrix_agent_block = np.zeros((self.n_agents, self.n_blocks), dtype=float)
         
         self.sensitivity = sensitivity # How close to interact
         self.n_neighbors = n_neighbors
@@ -84,7 +103,7 @@ class Environment(gym.Env):
         self._previous_neighbors = np.zeros((self.n_agents, n_neighbors, 3), dtype=float) 
         self.sensor_range = sensor_range
         self.sensor_angle = sensor_angle
-        self.max_distance_covered_per_step = max_distance_covered_per_step
+        self.max_wheel_velocity = max_wheel_velocity
 
         self._rewards = np.zeros(self.n_agents)
 
@@ -103,8 +122,8 @@ class Environment(gym.Env):
         self.n_types = len(self._colors_map) + 1 + 1 + 1 # colors, robot, edge, nothing
         
         # Action space
-        single_action_space = spaces.Box(low=np.array([0, 0]), 
-                                         high=np.array([max_distance_covered_per_step, sensor_angle]), dtype=float)
+        single_action_space = spaces.Box(low=np.array([-max_wheel_velocity, -max_wheel_velocity, -max_wheel_velocity]), 
+                                         high=np.array([max_wheel_velocity, max_wheel_velocity, max_wheel_velocity]), dtype=float)
         
         self.action_space = spaces.Tuple([single_action_space for _ in range(self.n_agents)])
         
@@ -153,101 +172,79 @@ class Environment(gym.Env):
             # All the color objective must be in the blocks colors
             for color, _ in objective:
                 assert color in initial_setting['colors'], f"Color {color} in objective is not present in the arena"
-
-    def _calculate_distance_direction(self, pointA, pointB, distance_type='euclidean'):
-        x1, y1 = pointA
-        x2, y2 = pointB
-
-        # Calculate distance
-        if distance_type == 'manhattan':
-            distance = abs(x1 - x2) + abs(y1 - y2)
-        elif distance_type == 'euclidean':
-            distance = sqrt((x1 - x2) ** 2 + (y1 - y2) ** 2)
-        else:
-            raise ValueError("Invalid distance type. Use 'manhattan' or 'euclidean'.")
-
-        # Calculate direction in degrees
-        angle_radians = atan2(y2 - y1, x2 - x1)
-        direction_degrees = degrees(angle_radians)
-
-        # Normalize the direction to be between 0 and 360 degrees
-        if direction_degrees < 0:
-            direction_degrees += 360
-        # down is 0/360 degrees, right is 90 degrees, up is 180 degrees, left is 270 degrees
-
-        return distance, direction_degrees
     
+    def _update_directions_matrix(self):
+        # Blocks directions matrix
+        dx_blocks = self.agents_location[:, np.newaxis, 0] - self.blocks_location[:, 0] 
+        dy_blocks = self.agents_location[:, np.newaxis, 1] - self.blocks_location[:, 1] 
+        angles = np.degrees(np.arctan2(dy_blocks, dx_blocks))
+        angles = np.mod(np.add(angles, 360), 360)
+        self._direction_matrix_agent_block = angles
+
+        # Agents directions matrix
+        dx_agents = self.agents_location[:, np.newaxis, 0] - self.agents_location[:, 0]  
+        dy_agents = self.agents_location[:, np.newaxis, 1] - self.agents_location[:, 1]
+        angles = np.degrees(np.arctan2(dy_agents, dx_agents))
+        angles = np.mod(np.add(angles, 360), 360)
+        self._direction_matrix_agent_agent = angles
+
+    def _update_distance_matrix(self):
+        # Blocks distance matrix
+        diff_matrix_blocks = self.agents_location[:, np.newaxis, :] - self.blocks_location 
+        self._distance_matrix_agent_block = np.linalg.norm(diff_matrix_blocks, axis=-1)
+
+        # Agents distance matrix
+        diff_matrix_agents = self.agents_location[:, np.newaxis, :] - self.agents_location
+        self._distance_matrix_agent_agent = np.linalg.norm(diff_matrix_agents, axis=-1)
+
     def _detect(self, i):
         # Mimic sensors reading
         
-        neighbor_counter = -1
-        neighbor = np.zeros((self.n_neighbors, 3), dtype=float)
+        neighbors = []
+        
         # TODO: ensure that the sensors only detect one agent per direction (the closest one)
-        
         # Check if sensors detect the edge of the arena
+        # TODO: check degrees consistency
         if self.agents_location[i][0] < self.sensor_range: # Top edge
-            neighbor_counter += 1
-            neighbor[neighbor_counter] = [1, self.agents_location[i][0], 180]
+            neighbors.append([1, self.agents_location[i][0], UP]) 
         if self.size - self.agents_location[i][0] - 1 < self.sensor_range: # Bottom edge
-            neighbor_counter += 1
-            neighbor[neighbor_counter] = [1, self.size - self.agents_location[i][0] - 1, 0]
+            neighbors.append([1, self.size - self.agents_location[i][0] - 1, DOWN])
         if self.agents_location[i][1] < self.sensor_range: # Left edge
-            neighbor_counter += 1
-            neighbor[neighbor_counter] = [1, self.agents_location[i][1], 270]
+            neighbors.append([1, self.agents_location[i][1], LEFT])
         if self.size - self.agents_location[i][1] - 1 < self.sensor_range: # Right edge
-            neighbor_counter += 1
-            neighbor[neighbor_counter] = [1, self.size - self.agents_location[i][1] - 1, 90]
+            neighbors.append([1, self.size - self.agents_location[i][1] - 1, RIGHT])
         
-        # Check if the sensors detect other agents
-        for j in range(self.n_agents):
-            if i != j:
-                distance, direction = self._calculate_distance_direction(self.agents_location[i], 
-                                                                        self.agents_location[j])
-                if distance <= self.sensor_range: # If the other agent is within the sensor range
-                    if (neighbor_counter >= self.n_neighbors - 1):
-                        # Substitute with the furthest TODO: check
-                        max_distance = -1
-                        max_distance_index = -1
-                        for k in range(self.n_neighbors):
-                            if neighbor[k, 1] > max_distance:
-                                max_distance = neighbor[k, 1]
-                                max_distance_index = k
-                        if distance < max_distance:
-                            neighbor[max_distance_index] = [2, distance, direction]
-                    else:
-                        neighbor_counter += 1
-                        neighbor[neighbor_counter] = [2, distance, direction] # 1 to indicate an agent
+        #  Get indexes of agents that are within the sensor range
+        neighbors_agents_idx = np.where(self._distance_matrix_agent_agent[i] <= self.sensor_range)[0]
+        # Remove the i index
+        neighbors_agents_idx = neighbors_agents_idx[neighbors_agents_idx != i]
+        # Get the distances and directions of the agents that are within the sensor range
+        distances_agents = self._distance_matrix_agent_agent[i, neighbors_agents_idx]
+        directions_agents = self._direction_matrix_agent_agent[i, neighbors_agents_idx]
+        # Add the agents that are within the sensor range
+        for j in range(len(neighbors_agents_idx)):
+            neighbors.append([2, distances_agents[j], directions_agents[j]])
+
+        # Get indexes of blocks that are within the sensor range
+        neighbors_blocks_idx = np.where(self._distance_matrix_agent_block[i] <= self.sensor_range)[0]
+        # Get the distances and directions of the blocks that are within the sensor range
+        distances_blocks = self._distance_matrix_agent_block[i, neighbors_blocks_idx]
+        directions_blocks = self._direction_matrix_agent_block[i, neighbors_blocks_idx]
+        # Add the blocks that are within the sensor range
+        for j in range(len(neighbors_blocks_idx)):
+            neighbors.append([self.blocks_color[neighbors_blocks_idx[j]], distances_blocks[j], directions_blocks[j]])
+
+        n_detected_neighbors = len(neighbors)
+        neighbors = sorted(neighbors, key=lambda x: x[1])
+        # Fill the rest of the neighbors with nothing
+        for _ in range(self.n_neighbors - n_detected_neighbors):
+            neighbors.append([0, 0, 0])
         
-        # Check if the sensors detect blocks
-        for j in range(self.n_blocks):
-            distance, direction = self._calculate_distance_direction(self.agents_location[i], 
-                                                                    self.blocks_location[j])
-            # If the block is within the sensor range
-            if distance <= self.sensor_range and np.any(self.blocks_location[j] != [-1, -1]):
-                if (neighbor_counter >= self.n_neighbors - 1):
-                    # Substitute with the furthest
-                    max_distance = -1
-                    max_distance_index = -1
-                    for k in range(self.n_neighbors):
-                        if neighbor[k, 1] > max_distance:
-                            max_distance = neighbor[k, 1]
-                            max_distance_index = k
-                    if distance < max_distance:
-                        neighbor[max_distance_index] = [self.blocks_color[j], distance, direction]
-                else:
-                    neighbor_counter += 1
-                    neighbor[neighbor_counter] = [self.blocks_color[j], distance, direction]
-    
-        # Sort the neighbors by distance
-        # Define a custom sort key that ignores rows with 0 in the second column
-        def sort_key(row):
-            return row[1] if row[0] != 0 else np.inf
-        
-        self._neighbors[i] = np.array(sorted(neighbor.copy(), key=sort_key))
+        self._neighbors[i] = neighbors[:self.n_neighbors] # Take only first n_neighbors
 
     def _get_obs(self, i):
         carrying = self.blocks_color[self._agents_carrying[i]] if self._agents_carrying[i] != -1 else -1
-        return {"neighbors" : self._neighbors[i], "carrying" : carrying}
+        return {"neighbors" : self._neighbors[i], "heading": self.agents_heading[i], "carrying" : carrying}
     
     def reset(self, seed=None):
         # We need the following line to seed self.np_random
@@ -261,6 +258,7 @@ class Environment(gym.Env):
         
         if self._initial_setting is not None:
             self.agents_location = self._initial_setting['agents'].copy()
+            self.agents_heading = self._initial_setting['headings'].copy()
             self.blocks_location = self._initial_setting['blocks'].copy()
             self.blocks_color = self._initial_setting['colors'].copy()
         else:
@@ -269,16 +267,16 @@ class Environment(gym.Env):
                 # Check if the agents are not spawning in the same location
                 while True:
                     # Spawn the agents in the nest
-                    if self.nest == NORTH_EDGE:
+                    if self.nest == UP:
                         self.agents_location[i][0] = 0
                         self.agents_location[i][1] = self.np_random.uniform(0, self.size)
-                    elif self.nest == SOUTH_EDGE:
+                    elif self.nest == DOWN:
                         self.agents_location[i][0] = self.size - 1
                         self.agents_location[i][1] = self.np_random.uniform(0, self.size)
-                    elif self.nest == WEST_EDGE:
+                    elif self.nest == LEFT:
                         self.agents_location[i][0] = self.np_random.uniform(0, self.size)
                         self.agents_location[i][1] = 0
-                    elif self.nest == EAST_EDGE:
+                    elif self.nest == RIGHT:
                         self.agents_location[i][0] = self.np_random.uniform(0, self.size)
                         self.agents_location[i][1] = self.size - 1
                     if i == 0 or not np.any(np.linalg.norm(self.agents_location[i] - self.agents_location[:i], axis=1) < self.sensitivity):
@@ -309,6 +307,8 @@ class Environment(gym.Env):
         self._task_completed = []
         observations = []
         info = {}
+        self._update_directions_matrix()
+        self._update_distance_matrix()
         for i in range(self.n_agents):
             self._detect(i)
             observations.append(self._get_obs(i))
@@ -319,19 +319,19 @@ class Environment(gym.Env):
         return np.linalg.norm(a - b) < self.sensitivity
     
     def _is_agent_close_to_edge(self, agent):
-        return agent[0] < self.sensitivity or self.size - agent[0] - 1 < self.sensitivity \
-                or agent[1] < self.sensitivity or self.size - agent[1] - 1 < self.sensitivity
+        return agent[0] < self.sensitivity or self.size - agent[0] - 1 < 1 \
+                or agent[1] < self.sensitivity or self.size - agent[1] - 1 < 1 # 1 is the size of the drop zone
     
     def _is_correct_edge(self, agent, block_color):
         current_edge = -1
         if agent[0] < self.sensitivity:
-            current_edge = NORTH_EDGE
+            current_edge = UP
         elif self.size - agent[0] - 1 < self.sensitivity:
-            current_edge = SOUTH_EDGE
+            current_edge = DOWN
         elif agent[1] < self.sensitivity:
-            current_edge = WEST_EDGE
+            current_edge = LEFT
         elif self.size - agent[1] - 1 < self.sensitivity:
-            current_edge = EAST_EDGE
+            current_edge = RIGHT
         
         current_color = block_color
         task = (current_color, current_edge)
@@ -345,13 +345,13 @@ class Environment(gym.Env):
         if block_color not in self._objective_colors:
             return -1
         target_edge = self.objective[self._objective_colors.index(block_color)][1]
-        if target_edge == NORTH_EDGE:
+        if target_edge == UP:
             target_position = np.array([0, agent[1]])
-        elif target_edge == SOUTH_EDGE:
+        elif target_edge == DOWN:
             target_position = np.array([self.size - 1, agent[1]])
-        elif target_edge == WEST_EDGE:
+        elif target_edge == LEFT:
             target_position = np.array([agent[0], 0])
-        elif target_edge == EAST_EDGE:
+        elif target_edge == RIGHT:
             target_position = np.array([agent[0], self.size - 1])
         
         return np.linalg.norm(agent - target_position)
@@ -363,65 +363,64 @@ class Environment(gym.Env):
     
     def _get_bootstrap_reward_drop(self, distance, j):
         return (distance * (REWARD_DROP / 2)) / self._blocks_initial_distance_to_dropzone[j]
-        
+
+    
     def step(self, action):
         
         self._rewards = np.zeros(self.n_agents)
+        old_agents_location = self.agents_location.copy()
         
-        # Reset sensors
-        self._previous_neighbors = self._neighbors.copy()
-        # self._neighbors = np.zeros((self.n_agents, self.n_neighbors, 3), dtype=float)
+        # --- MOVEMENT ---
+        # Extract all v1, v2, v3 values
+        wheel_velocities = action
+        # Calculate vx, vy, and R_omega for all agents
+        velocities = np.dot(wheel_velocities, A.T) # u = Av, checked!
+        # Update positions
+        x_new = self.agents_location[:, 0] + velocities[:, 0] * TIME_PER_STEP
+        y_new = self.agents_location[:, 1] + velocities[:, 1] * TIME_PER_STEP
+        # Clip within arena
+        x_new = np.clip(x_new, 0, self.size - 1)
+        y_new = np.clip(y_new, 0, self.size - 1)
+        # Update heading
+        omega = velocities[:, 2] / (ROBOT_SIZE / 2) # Angular velocity, omega = R_omega / R
+        theta_new = np.mod(self.agents_heading + np.degrees(omega * TIME_PER_STEP), 360) # TODO: check if its radians or degrees (which degrees)
+        # Update internal state
+        self.agents_location = np.stack((x_new, y_new), axis=-1)
+        self.agents_heading = theta_new
         
+        # Check if agents are colliding
+        agents_in_same_position = []
         for i in range(self.n_agents):
-            # Get the action of the agent
-            distance, direction = action[i]
-            if distance > self.max_distance_covered_per_step:
-                distance = self.max_distance_covered_per_step
+            # Get indexes of agents that are in the same position
+            colliding = np.where(np.linalg.norm(self.agents_location - self.agents_location[i], axis=1) < self.sensitivity)[0]
+            colliding = colliding[colliding != i]
+            if colliding.size > 0:
+                agents_in_same_position.append(i)
+                agents_in_same_position.extend(colliding)
+
+        if len(agents_in_same_position) > 0:
+            self._rewards[agents_in_same_position] += REWARD_COLLISION # Penalize collsion
+            agents_in_same_position = list(set(agents_in_same_position))
+            # If the new position is occupied, keep the old position TODO: check it
+            self.agents_location[agents_in_same_position] = old_agents_location[agents_in_same_position]
+        # ----------------
+        
+        for i in range(self.n_agents):    
+            flag_pick = False
+            flag_drop = False
             
-            # Calculate the new position
-            direction_radians = direction
-            if direction > 180:
-                direction_radians -= 360
-            direction_radians = np.radians(direction)
-            dx = round(distance * np.cos(direction_radians), 2)
-            dy = round(distance * np.sin(direction_radians), 2)
-            # `np.clip` to make sure we don't leave the grid
-            new_x = self.agents_location[i][0] + dx
-            new_y = self.agents_location[i][1] + dy
-            new_position = np.array([new_x, new_y])
-            # # Check if it is trying to leave the arena
-            # if np.any(new_position < 0) or np.any(new_position >= self.size):
-            #     self._rewards[i] += REWARD_WRONG_MOVE # Penalize the agent for crushing into wall
-            # Clip values to stay within the grid
-            new_position = np.clip(new_position, 0, self.size - 1)
-            
-            # TODO: this checks or penalize with reward system to avoid these
-            # Check if the new position is not too close to another agent
-            agent_locations_but_i = np.delete(self.agents_location, i, axis=0)
-            differences = new_position - agent_locations_but_i
-            distances = np.linalg.norm(differences, axis=1)
-            occupied_by_agent = np.any(distances < self.sensitivity)
-            # Check if the new position is not too close to a block while carrying one (can't pick up two blocks)
-            occupied_by_block_while_carrying = np.any(np.linalg.norm(new_position - self.blocks_location, axis=1) < self.sensitivity) and self._agents_carrying[i] != -1
-            
-            if not (occupied_by_agent or occupied_by_block_while_carrying):
-                self.agents_location[i] = new_position # Move the agent to the new position
-                
-                flag_pick = False
-                flag_drop = False
-                
-                # --- PICK ---
-                # Check if the agent is picking up a block
+            # --- PICK ---
+            # Check if the agent is picking up a block
+            if self._agents_carrying[i] == -1: # If the agent is not carrying a block
                 for j in range(self.n_blocks):
                     # If the block is not picked up by any agent and the agent is not carrying a block
                     # and the agent is close to the block
-                    if self._blocks_picked_up[j] == -1 \
-                            and self._agents_carrying[i] == -1 \
-                            and self._is_close(self.agents_location[i], self.blocks_location[j]):
+                    if self._is_close(self.agents_location[i], self.blocks_location[j]):
                         flag_pick = True
                         # Reward the agent for picking up the block
                         if self.blocks_color[j] in self._objective_colors:
-                            self._rewards[i] += (REWARD_PICK / 2) + self._get_bootstrap_reward_pick(distance, True)
+                            distance = np.linalg.norm(self.agents_location[i] - old_agents_location[i])
+                            self._rewards[i] += (REWARD_PICK / 2) + self._get_bootstrap_reward_pick(distance + np.linalg.norm(self.agents_location[i] - self.blocks_location[j]), True)
                             self._agents_closest_objective_distance[i] = self._get_distance_to_objective_edge(self.agents_location[i], self.blocks_color[j])
                         else:
                             self._rewards[i] -= REWARD_PICK
@@ -431,30 +430,32 @@ class Environment(gym.Env):
                         self._blocks_picked_up[j] = i
                         self._agents_carrying[i] = j
                         break
-                # ------------
+            # ------------
 
-                # --- DROP ---
-                if not flag_pick:
-                    # Check if the agent is dropping a block
-                    if self._agents_carrying[i] != -1: # If the agent is carrying a block
-                        # If the agent is close to an edge
-                        if self._is_agent_close_to_edge(self.agents_location[i]):
-                            flag_drop = True
-                            # Reward the agent for dropping the block
-                            if self._is_correct_edge(self.agents_location[i], self.blocks_color[self._agents_carrying[i]]):
-                                self._task_completed.append( (self._agents_carrying[i], 
-                                                              self.blocks_color[self._agents_carrying[i]],i ))
-                                self.blocks_location[self._agents_carrying[i]] = [-1,-1]
-                                self._rewards[i] += (REWARD_DROP / 2) + self._get_bootstrap_reward_drop(distance, self._agents_carrying[i])
-                            else:
-                                self.blocks_location[self._agents_carrying[i]] = self.agents_location[i]
-                                self._rewards[i] -= REWARD_DROP
-                            
-                            # Drop the block
-                            self._blocks_picked_up[self._agents_carrying[i]] = -1
-                            self._agents_carrying[i] = -1
+            # --- DROP ---
+            if not flag_pick:
+                # Check if the agent is dropping a block
+                if self._agents_carrying[i] != -1: # If the agent is carrying a block
+                    # If the agent is close to an edge
+                    if self._is_agent_close_to_edge(self.agents_location[i]):
+                        flag_drop = True
+                        # Reward the agent for dropping the block
+                        if self._is_correct_edge(self.agents_location[i], self.blocks_color[self._agents_carrying[i]]):
+                            self._task_completed.append( (self._agents_carrying[i], 
+                                                            self.blocks_color[self._agents_carrying[i]],i ))
+                            self.blocks_location[self._agents_carrying[i]] = [-1,-1]
+                            distance = np.linalg.norm(self.agents_location[i] - old_agents_location[i])
+                            self._rewards[i] += (REWARD_DROP / 2) + self._get_bootstrap_reward_drop(distance + self._get_distance_to_objective_edge(self.agents_location[i], self.blocks_color[self._agents_carrying[i]])
+                                                                                                    , self._agents_carrying[i])
+                        else:
+                            self.blocks_location[self._agents_carrying[i]] = self.agents_location[i]
+                            self._rewards[i] -= REWARD_DROP
+                        
+                        # Drop the block
+                        self._blocks_picked_up[self._agents_carrying[i]] = -1
+                        self._agents_carrying[i] = -1
 
-                            self._agents_closest_objective_distance[i] = -1
+                        self._agents_closest_objective_distance[i] = -1
                 # ------------
 
                 self._detect(i)
@@ -496,7 +497,8 @@ class Environment(gym.Env):
                 # # ------------------------
 
                      
-
+        self._update_directions_matrix()
+        self._update_distance_matrix()
         observations = []
         for i in range(self.n_agents):
             observation = self._get_obs(i)
@@ -507,7 +509,7 @@ class Environment(gym.Env):
         if len(self._task_completed) == self.n_task:
             done = True
 
-        reward = sum(self._rewards) # Sum the rewards of all agents of the swarm
+        reward = round(sum(self._rewards), 4) # Sum the rewards of all agents of the swarm
         info = {"completed": self._task_completed}
         truncated = False
         
@@ -516,7 +518,7 @@ class Environment(gym.Env):
     
     def print_env(self):
         # Define the size of the visualization grid
-        vis_grid_size = 25  # Adjust based on desired resolution
+        vis_grid_size = 20  # Adjust based on desired resolution
 
         # Create an empty visual representation of the environment
         visual_grid = [["." for _ in range(vis_grid_size)] for _ in range(vis_grid_size)]
@@ -580,15 +582,21 @@ class Environment(gym.Env):
     def process_observation(self, obs):
         # Create structured arrays for batch processing
         neighbors = np.array([agent['neighbors'] for agent in obs])
+        heading = np.array([agent['heading'] for agent in obs])
         carrying = np.array([agent['carrying'] for agent in obs])
         
-
         # One-hot encode types
         types = np.eye(self.n_types)[neighbors[:, :, 0].astype(int)]
 
         # Normalize distances and directions
-        distances = neighbors[:, :, 1] / self.sensor_range
-        directions = neighbors[:, :, 2] / self.sensor_angle
+        distances = neighbors[:, :, 1] / self.sensor_range 
+        directions = neighbors[:, :, 2]  # TODO: sin cos
+        directions_sin = np.sin(np.radians(neighbors[:, :, 2]))
+        directions_cos = np.cos(np.radians(neighbors[:, :, 2]))
+
+        # heading = heading / self.sensor_angle # TODO: sin cos of the heading
+        heading_sin = np.sin(np.radians(heading))
+        heading_cos = np.cos(np.radians(heading))
 
         # One-hot encode carrying status
         # Assuming carrying values range from -1 (not carrying) to max_carrying_id
@@ -600,9 +608,12 @@ class Environment(gym.Env):
         flat_features = np.concatenate([
             types.reshape(types.shape[0], -1),  # Flatten types
             distances.reshape(distances.shape[0], -1),  # Flatten distances
-            directions.reshape(directions.shape[0], -1),  # Flatten directions
+            directions_sin.reshape(directions_sin.shape[0], -1),  # Flatten directions
+            directions_cos.reshape(directions_cos.shape[0], -1),  # Flatten directions
+            heading_sin.reshape(heading_sin.shape[0], -1),  # Flatten heading
+            heading_cos.reshape(heading_cos.shape[0], -1),  # Flatten heading
             carrying_one_hot  # Already appropriate shape
-        ], axis=1)
+        ], axis=1) # TODO: is the order important?
 
         return flat_features
         

@@ -16,6 +16,7 @@ def main(script, difficulty, n_generations):
     if difficulty == "easy":
         initial_setting = {
             'agents': np.array([[0, 5], [0, 10], [0, 15]], dtype=float),
+            'headings': np.array([environment.DOWN, environment.DOWN, environment.DOWN], dtype=float), 
             'blocks': np.array([[9, 16], [10, 12], [11, 6]], dtype=float),
             'colors': np.array([environment.RED, environment.GREEN, environment.RED], dtype=int)
             }
@@ -26,9 +27,19 @@ def main(script, difficulty, n_generations):
             'colors': np.array([environment.RED, environment.RED, environment.BLUE, environment.GREEN, environment.RED], dtype=int)
             }
     else:
-        raise ValueError("Not implemented")
+        np.random.seed(seed=42)
+        red_blocks = np.random.randint(3, environment.SIMULATION_ARENA_SIZE - 3, (6, 2))
+        other_blocks = np.random.randint(3, environment.SIMULATION_ARENA_SIZE - 3, (6, 2))
+        other_blocks_color = np.random.randint(4, 7, 6)
+        initial_blocks = np.concatenate((red_blocks, other_blocks), axis=0)
+        initial_colors = np.concatenate((np.full(6, environment.RED), other_blocks_color), axis=0)
+        initial_setting = {
+        'agents': np.array([[0, 5], [0, 10], [0, 15]], dtype=float),
+        'blocks': np.array(initial_blocks, dtype=float),
+        'colors': np.array(initial_colors, dtype=int),
+        }
     
-    filename = script + "_" + difficulty + "_" + str(n_generations) + ".png"
+    filename = script + "_" + difficulty + "_" + str(n_generations)
     if script == "neat":
         run_neat(initial_setting, n_generations, filename)
     elif script == "ga":

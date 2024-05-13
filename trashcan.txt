@@ -158,3 +158,74 @@ def step(self, action):
                 actions = random_actions
 
             obs, reward, done, _, _ = env.step(actions)
+
+
+def _calculate_distance_direction(self, pointA, pointB, distance_type='euclidean', only_distance=False):
+        x1, y1 = pointA
+        x2, y2 = pointB
+
+        # Calculate distance
+        if distance_type == 'manhattan':
+            distance = abs(x1 - x2) + abs(y1 - y2)
+        elif distance_type == 'euclidean':
+            # distance = sqrt((x1 - x2) ** 2 + (y1 - y2) ** 2)
+            distance = np.linalg.norm(pointA - pointB)
+        else:
+            raise ValueError("Invalid distance type. Use 'manhattan' or 'euclidean'.")
+
+        # Calculate direction in degrees
+        angle_radians = atan2(y2 - y1, x2 - x1)
+        direction_degrees = degrees(angle_radians)
+
+        # Normalize the direction to be between 0 and 360 degrees
+        if direction_degrees < 0:
+            direction_degrees += 360
+        # S is 0/360 degrees, E is 90 degrees, N is 180 degrees, W is 270 degrees
+
+        return distance, direction_degrees
+
+
+        self._rewards = np.zeros(self.n_agents)
+        
+
+
+        # Reset sensors
+        self._previous_neighbors = self._neighbors.copy()
+        # self._neighbors = np.zeros((self.n_agents, self.n_neighbors, 3), dtype=float)
+        
+        for i in range(self.n_agents):
+            # Get the action of the agent
+            distance, direction = action[i]
+            if distance > self.max_distance_covered_per_step:
+                distance = self.max_distance_covered_per_step
+            
+            # Calculate the new position
+            direction_radians = direction
+            if direction > 180:
+                direction_radians -= 360
+            direction_radians = np.radians(direction)
+            dx = round(distance * np.cos(direction_radians), 2)
+            dy = round(distance * np.sin(direction_radians), 2)
+            # `np.clip` to make sure we don't leave the grid
+            new_x = self.agents_location[i][0] + dx
+            new_y = self.agents_location[i][1] + dy
+            new_position = np.array([new_x, new_y])
+            # # Check if it is trying to leave the arena
+            # if np.any(new_position < 0) or np.any(new_position >= self.size):
+            #     self._rewards[i] += REWARD_WRONG_MOVE # Penalize the agent for crushing into wall
+            # Clip values to stay within the grid
+            new_position = np.clip(new_position, 0, self.size - 1)
+            
+            # TODO: this checks or penalize with reward system to avoid these
+            # Check if the new position is not too close to another agent
+            agent_locations_but_i = np.delete(self.agents_location, i, axis=0)
+            differences = new_position - agent_locations_but_i
+            distances = np.linalg.norm(differences, axis=1)
+            occupied_by_agent = np.any(distances < self.sensitivity)
+            # Check if the new position is not too close to a block while carrying one (can't pick up two blocks)
+            occupied_by_block_while_carrying = np.any(np.linalg.norm(new_position - self.blocks_location, axis=1) < self.sensitivity) and self._agents_carrying[i] != -1
+    
+
+
+    single_action_space = spaces.Box(low=np.array([0, 0]), 
+                                         high=np.array([max_distance_covered_per_step, sensor_angle]), dtype=float)
