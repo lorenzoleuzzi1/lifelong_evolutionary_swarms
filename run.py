@@ -9,21 +9,21 @@ from deap import base, creator, tools, algorithms, cma
 
 # TODO: make it prettier
 
-def run_neat(initial_settings, num_generations, filename):
+def run_neat(filename, n_generations, n_steps, population_size, initial_setting, n_agents, n_blocks, seed):
     env = environment.Environment(objective = [(environment.RED, environment.UP)],
-                   size = environment.SIMULATION_ARENA_SIZE, 
-                   n_agents = len(initial_settings['agents']), 
-                   n_blocks = len(initial_settings['blocks']),
-                   n_neighbors = 3,
-                   sensor_range = environment.SIMULATION_SENSOR_RANGE,
-                   sensor_angle = 360,
-                   max_wheel_velocity = environment.SIMULATION_MAX_WHEEL_VELOCITY,
-                   sensitivity = 0.2,
-                   initial_setting = initial_settings)
-    
+                    size = environment.SIMULATION_ARENA_SIZE,
+                    n_agents = n_agents,
+                    n_blocks = n_blocks, 
+                    n_neighbors = 3,
+                    sensor_range = environment.SIMULATION_SENSOR_RANGE,
+                    max_wheel_velocity = environment.SIMULATION_MAX_WHEEL_VELOCITY,
+                    sensitivity = 0.5,
+                    initial_setting = initial_setting,
+                    seed = seed)
     env.reset()
+    env.print_env()
 
-    def calculate_fitnesses_neat(genomes, config, n_steps = 200, verbose=False):
+    def calculate_fitnesses_neat(genomes, config, n_steps = n_steps, verbose=False):
         flag_done = False
         best_steps = n_steps
 
@@ -36,8 +36,8 @@ def run_neat(initial_settings, num_generations, filename):
 
             for step in range(n_steps):
                 nn_inputs = env.process_observation(obs)
-                nn_outputs = [net.activate(nn_input) for nn_input in nn_inputs]
-                actions = np.dot(nn_outputs, env.max_wheel_velocity)
+                nn_outputs = np.array([net.activate(nn_input) for nn_input in nn_inputs])
+                actions = (2 * nn_outputs - 1) * env.max_wheel_velocity # Scale output sigmoid in range of wheel velocity
 
                 obs, reward, done, _, _ = env.step(actions)
                 genome.fitness += reward
@@ -61,10 +61,12 @@ def run_neat(initial_settings, num_generations, filename):
             print(f"Done in {best_steps} steps")
     
     # Set configuration file
-    config_path = "./neat_config.txt"
+    config_path = "./neat_config_ff.txt"
     config = neat.config.Config(neat.DefaultGenome, neat.DefaultReproduction,
                                 neat.DefaultSpeciesSet, neat.DefaultStagnation, config_path)
-
+    
+    config.genome_config.add_activation('neat_sigmoid', utils.neat_sigmoid)
+    config.pop_size = population_size
     # Create core evolution algorithm class
     p = neat.Population(config)
 
@@ -74,7 +76,7 @@ def run_neat(initial_settings, num_generations, filename):
     p.add_reporter(stats)
 
     # Run NEAT
-    winner = p.run(calculate_fitnesses_neat, num_generations)
+    winner = p.run(calculate_fitnesses_neat, n_generations)
 
     # Plot stats
     bests = stats.get_fitness_stat(np.max)
@@ -89,26 +91,30 @@ def run_neat(initial_settings, num_generations, filename):
     with open(f"results/winners/{filename}_best.pkl", "wb") as f:
         pickle.dump(winner, f)
   
-def run_ga(initial_settings, num_generations, filename):
+
+
+def run_ga(filename, n_generations, n_steps, population_size, initial_setting, n_agents, n_blocks, seed):
     env = environment.Environment(objective = [(environment.RED, environment.UP)],
-                   size = environment.SIMULATION_ARENA_SIZE, 
-                   n_agents = len(initial_settings['agents']), 
-                   n_blocks = len(initial_settings['blocks']),
-                   n_neighbors = 3,
-                   sensor_range = environment.SIMULATION_SENSOR_RANGE,
-                   sensor_angle = 360,
-                   max_distance_covered_per_step = environment.SIMULATION_MAX_DISTANCE,
-                   sensitivity = 0.2,
-                   initial_setting = initial_settings)
+                    size = environment.SIMULATION_ARENA_SIZE,
+                    n_agents = n_agents,
+                    n_blocks = n_blocks, 
+                    n_neighbors = 3,
+                    sensor_range = environment.SIMULATION_SENSOR_RANGE,
+                    max_wheel_velocity = environment.SIMULATION_MAX_WHEEL_VELOCITY,
+                    sensitivity = 0.5,
+                    initial_setting = initial_setting,
+                    seed = seed)
+    env.reset()
+    env.print_env()
     
-    input_dim = (env.n_types + 2) * env.n_neighbors + env.n_types - 2
-    output_dim = 2
+    input_dim = (env.n_types + 2 + 1) * env.n_neighbors + 2 + env.n_types - 2
+    output_dim = 3
     hidden_units = [16]
     layer_sizes = [input_dim] + hidden_units + [output_dim]
 
-    nn = neural_controller.NeuralController(layer_sizes, hidden_activation="sigmoid", output_activation="sigmoid")
+    nn = neural_controller.NeuralController(layer_sizes, hidden_activation="neat_sigmoid", output_activation="neat_sigmoid")
 
-    def calculate_fitness(individual, n_steps=200, verbose = False):
+    def calculate_fitness(individual, n_steps=n_steps, verbose = False):
         fitness = 0
         obs, _ = env.reset()
         
@@ -118,7 +124,7 @@ def run_ga(initial_settings, num_generations, filename):
         for step in range(n_steps):
             nn_inputs = env.process_observation(obs)
             nn_outputs = np.array(nn.predict(nn_inputs))
-            actions = nn_outputs * np.array([env.max_distance_covered_per_step, env.sensor_angle])
+            actions = (2 * nn_outputs - 1) * env.max_wheel_velocity # Scale output sigmoid in range of wheel velocity
                 
             obs, reward, done, _, _ = env.step(actions)
 
@@ -136,12 +142,6 @@ def run_ga(initial_settings, num_generations, filename):
                 break
         
         return [float(fitness)]
-
-    pop_size = 200
-    num_elite = int(0.05 * pop_size) # 5% of the population will be copied to the next generation (elitism)
-    num_removed = int(0.1 * pop_size) # 10% of the population will be removed and randomly replaced
-    tournament_size = int(0.03 * pop_size)
-    offspring_size = pop_size - num_elite - num_removed
 
     # Set up the fitness and individual
     creator.create("FitnessMax", base.Fitness, weights=(1.0,))  # Maximization problem
@@ -171,11 +171,11 @@ def run_ga(initial_settings, num_generations, filename):
     stats.register("std", np.std)
     stats.register("worst", np.min)
 
-    pop = toolbox.population(n=pop_size)  # Create a population 
+    pop = toolbox.population(n=population_size)  # Create a population 
     hof = tools.HallOfFame(1)  # Hall of fame to store the best individual
 
     # Run the genetic algorithm
-    pop, log = algorithms.eaSimple(pop, toolbox, cxpb=0.8, mutpb=0.3, ngen=num_generations,
+    pop, log = algorithms.eaSimple(pop, toolbox, cxpb=0.8, mutpb=0.5, ngen=n_generations,
                                     stats=stats, halloffame=hof, verbose=True)
     
     # Plot stats
@@ -197,26 +197,29 @@ def run_ga(initial_settings, num_generations, filename):
     best_individual = hof[0]
     np.save(f"results/winners/{filename}_best.npy", best_individual)
 
-def run_cmaes(initial_settings, num_generations, filename):
+
+def run_cmaes(filename, n_generations, n_steps, population_size, initial_setting, n_agents, n_blocks, seed):
     env = environment.Environment(objective = [(environment.RED, environment.UP)],
-                   size = environment.SIMULATION_ARENA_SIZE, 
-                   n_agents = len(initial_settings['agents']), 
-                   n_blocks = len(initial_settings['blocks']),
-                   n_neighbors = 3,
-                   sensor_range = environment.SIMULATION_SENSOR_RANGE,
-                   sensor_angle = 360,
-                   max_distance_covered_per_step = environment.SIMULATION_MAX_DISTANCE,
-                   sensitivity = 0.2,
-                   initial_setting = initial_settings)
+                    size = environment.SIMULATION_ARENA_SIZE,
+                    n_agents = n_agents,
+                    n_blocks = n_blocks, 
+                    n_neighbors = 3,
+                    sensor_range = environment.SIMULATION_SENSOR_RANGE,
+                    max_wheel_velocity = environment.SIMULATION_MAX_WHEEL_VELOCITY,
+                    sensitivity = 0.5,
+                    initial_setting = initial_setting,
+                    seed = seed)
     env.reset()
-    input_dim = (env.n_types + 2) * env.n_neighbors + env.n_types - 2
-    output_dim = 2
+    env.print_env()
+    
+    input_dim = (env.n_types + 2 + 1) * env.n_neighbors + 2 + env.n_types - 2
+    output_dim = 3
     hidden_units = [16]
     layer_sizes = [input_dim] + hidden_units + [output_dim]
 
-    nn = neural_controller.NeuralController(layer_sizes, hidden_activation="sigmoid", output_activation="sigmoid")
+    nn = neural_controller.NeuralController(layer_sizes, hidden_activation="sigmoid", output_activation="linear")
 
-    def calculate_fitness(individual, n_steps=200, verbose = False):
+    def calculate_fitness(individual, n_steps=n_steps, verbose = False):
         fitness = 0
         obs, _ = env.reset()
         
@@ -226,7 +229,7 @@ def run_cmaes(initial_settings, num_generations, filename):
         for step in range(n_steps):
             nn_inputs = env.process_observation(obs)
             nn_outputs = np.array(nn.predict(nn_inputs))
-            actions = nn_outputs * np.array([env.max_distance_covered_per_step, env.sensor_angle])
+            actions = (2 * nn_outputs - 1) * env.max_wheel_velocity # Scale output sigmoid in range of wheel velocity
                 
             obs, reward, done, _, _ = env.step(actions)
 
@@ -245,8 +248,6 @@ def run_cmaes(initial_settings, num_generations, filename):
                 break
         
         return [float(fitness)]
-    
-    population_size = 200
 
     # Set up the fitness and individual
     creator.create("FitnessMax", base.Fitness, weights=(1.0,))  # Maximization problem
@@ -272,7 +273,7 @@ def run_cmaes(initial_settings, num_generations, filename):
     # Using the best strategy to retrieve the best individual
     hof = tools.HallOfFame(1)
 
-    log = algorithms.eaGenerateUpdate(toolbox, ngen=num_generations, stats=stats, halloffame=hof)
+    log = algorithms.eaGenerateUpdate(toolbox, ngen=n_generations, stats=stats, halloffame=hof)
 
     # Plot stats
     bests = []

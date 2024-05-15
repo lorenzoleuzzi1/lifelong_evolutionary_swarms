@@ -1,4 +1,5 @@
 import numpy as np
+import utils
 
 class NeuralController:
     def __init__(self, layer_sizes, weights=None, hidden_activation="relu", output_activation="linear"):
@@ -6,10 +7,10 @@ class NeuralController:
         self.weights = weights
         self.activation = hidden_activation
         self.output_activation = output_activation
-        assert hidden_activation in ["relu", "sigmoid", "tanh"],\
-            "Activation must be either 'relu' or 'sigmoid' or 'tanh'"
-        assert output_activation in ["linear", "sigmoid", "softmax", "tanh"],\
-            "Output activation must be either 'linear' or 'sigmoid' or 'softmax' or 'tanh'" 
+        assert hidden_activation in ["relu", "sigmoid", "neat_sigmoid", "tanh"],\
+            "Activation must be either 'relu' or 'sigmoid' or 'neat_sigmoid' or 'tanh'"
+        assert output_activation in ["linear", "sigmoid", "neat_sigmoid", "softmax", "tanh"],\
+            "Output activation must be either 'linear' or 'sigmoid' or 'neat_sigmoid' or 'softmax' or 'tanh'" 
         self.total_weights = sum((layer_sizes[i] + 1) * layer_sizes[i+1] for i in range(len(layer_sizes) - 1))
     
     def predict(self, X):
@@ -22,6 +23,8 @@ class NeuralController:
                 a = 1 / (1 + np.exp(-z)) # Sigmoid activation
             if self.activation == "tanh":
                 a = np.tanh(z)
+            if self.activation == "neat_sigmoid":
+                a = utils.neat_sigmoid(z)
         
         final_weight, final_bias = self.weights[-1]
         output = np.dot(a, final_weight) + final_bias
@@ -33,6 +36,8 @@ class NeuralController:
             output = np.exp(output) / np.sum(np.exp(output), axis=1, keepdims=True)
         if self.output_activation == "tanh":
             output = np.tanh(output)
+        if self.output_activation == "neat_sigmoid":
+            output = utils.neat_sigmoid(output)
         
         return output
     
