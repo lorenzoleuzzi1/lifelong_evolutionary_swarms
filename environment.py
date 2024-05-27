@@ -3,6 +3,8 @@ import numpy as np
 import gymnasium as gym
 from gymnasium import spaces
 
+from utils import visual_grid_to_image
+
 TIME_STEP = 0.1 # a simulation step in seconds
 ROBOT_SIZE = 25 # in cm (diameter)
 SENSOR_RANGE = 100 # in cm
@@ -50,7 +52,6 @@ MOVE_UP_LEFT = [0.3660254, 1. -0.3660254]
 ROTATE_POSITIVE = [1.57079633, 1.57079633, 1.57079633]
 ROTATE_NEGATIVE = [3.14159265, 3.14159265, 3.14159265]
 
-# TODO: mind the collision... now it's checked only the position where they are getting
 # TODO: make change direction when reaching an edge, they should learn it via evolution
 # TODO: check for more speed optimization in the code
 
@@ -77,12 +78,12 @@ HARD_INITIAL_SETTING = {
                                 GREEN, YELLOW, PURPLE], dtype=int)
             }
 
-class Environment(gym.Env):
+class SwarmForagingEnv(gym.Env):
 
     def __init__(
             self, 
             nest = UP,
-            objective = [(RED, UP)], # objective is a list of tuples (color, edge) # TODO: maybe only 1 onjective
+            objective = [(RED, UP)], # objective is a list of tuples (color, edge) # TODO: maybe only 1 objective
             seed = None,
             size = 50, 
             initial_setting = None,
@@ -97,7 +98,6 @@ class Environment(gym.Env):
             time_step = 0.1, # in seconds
             ):
         
-        # TODO: if passing initial setting, no need to n_agents, n_blocks
         self.nest = nest  # The nest location
         self.objective = objective
         self._objective_colors = [obj[0] for obj in objective]
@@ -185,10 +185,14 @@ class Environment(gym.Env):
         # Blocks
         n_objective_blocks = int(self.n_blocks * self.rate_objective_block)
         n_other_blocks = self.n_blocks - n_objective_blocks
-        objective_blocks_location = np.random.randint(5, SIMULATION_ARENA_SIZE - 1, (n_objective_blocks, 2))
+        objective_blocks_location = np.random.randint((5, 1), 
+                                                    (SIMULATION_ARENA_SIZE - 2, SIMULATION_ARENA_SIZE - 2), 
+                                                    (n_objective_blocks, 2))
         objective_blocks_color = np.full(n_objective_blocks, objective_color)
         
-        other_blocks_location = np.random.randint(5, SIMULATION_ARENA_SIZE - 1, (n_other_blocks, 2))
+        other_blocks_location = np.random.randint((5, 1), 
+                                                (SIMULATION_ARENA_SIZE - 2, SIMULATION_ARENA_SIZE - 2),
+                                                (n_other_blocks, 2))
         other_blocks_color = []
         for i in range(n_other_blocks):
             other_blocks_color.append(np.random.randint(4, 7))
@@ -258,7 +262,6 @@ class Environment(gym.Env):
         
         neighbors = []
         
-        # TODO: ensure that the sensors only detect one agent per direction (the closest one)
         # Check if sensors detect the edge of the arena
         if self.agents_location[i][0] < self.sensor_range: # Top edge
             neighbors.append([1, self.agents_location[i][0], UP]) 
@@ -269,7 +272,7 @@ class Environment(gym.Env):
         if self.size - self.agents_location[i][1] - 1 < self.sensor_range: # Right edge
             neighbors.append([1, self.size - self.agents_location[i][1] - 1, RIGHT])
         
-        #  Get indexes of agents that are within the sensor range
+        # Get indexes of agents that are within the sensor range
         neighbors_agents_idx = np.where(self._distance_matrix_agent_agent[i] <= self.sensor_range)[0]
         # Remove the i index
         neighbors_agents_idx = neighbors_agents_idx[neighbors_agents_idx != i]
@@ -425,7 +428,7 @@ class Environment(gym.Env):
             # If the new position is occupied, keep the old position TODO: check it
             self.agents_location[agents_in_same_position] = old_agents_location[agents_in_same_position]
         
-        self._update_directions_matrix() # TODO: maybe here
+        self._update_directions_matrix()
         self._update_distance_matrix()
         # ----------------
         
@@ -535,8 +538,7 @@ class Environment(gym.Env):
         
         return observations, reward, done, truncated, info
 
-    
-    def print_env(self):
+    def render(self, verbose = True):
         # Define the size of the visualization grid
         vis_grid_size = 20  # Adjust based on desired resolution
 
@@ -568,10 +570,45 @@ class Environment(gym.Env):
                     visual_grid[x][y] = str(i)
         
         # Print the visual representation
-        for row in visual_grid:
-            print(" ".join(row))
+        if verbose:
+            for row in visual_grid:
+                print(" ".join(row))
+
+        return visual_grid_to_image(visual_grid)
+
+    # def render(self, verbose=True):
+    #     vis_grid_size = 20  # Adjust based on desired resolution
+
+    #     # Create an empty visual representation of the environment
+    #     visual_grid = [["." for _ in range(vis_grid_size)] for _ in range(vis_grid_size)]
         
-        print()
+    #     # Populate the visual grid with blocks
+    #     for i, block in enumerate(self.blocks_location):
+    #         if block[0] != np.inf and block[1] != np.inf:
+    #             x = int(round(block[0] * (vis_grid_size - 1) / (self.size - 1), 0))
+    #             y = int(round(block[1] * (vis_grid_size - 1) / (self.size - 1), 0))
+    #             if 0 <= x < vis_grid_size and 0 <= y < vis_grid_size:
+    #                 color_id = self.blocks_color[i]
+    #                 color_code = self._colors_map.get(color_id, self._reset_color)
+    #                 visual_grid[x][y] = color_code
+        
+    #     # Populate the visual grid with agents
+    #     for i, agent in enumerate(self.agents_location):
+    #         x = int(round(agent[0] * (vis_grid_size - 1) / (self.size - 1), 0))
+    #         y = int(round(agent[1] * (vis_grid_size - 1) / (self.size - 1), 0))
+    #         if 0 <= x < vis_grid_size and 0 <= y < vis_grid_size:
+    #             if self._agents_carrying[i] != -1:
+    #                 color_id = self.blocks_color[self._agents_carrying[i]]
+    #                 color_code = self._colors_map.get(color_id, self._reset_color)
+    #                 visual_grid[x][y] = f"{color_code}{i}"
+    #             else:
+    #                 visual_grid[x][y] = str(i)
+        
+    #     if verbose:
+    #         for row in visual_grid:
+    #             print(" ".join(row))
+
+    #     return visual_grid
 
         
     def print_observations(self, verbose = True):

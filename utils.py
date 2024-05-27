@@ -1,9 +1,73 @@
 import matplotlib.pyplot as plt
 import numpy as np
-import neat
-import environment
-import neural_controller
-from deap import tools
+from deap import tools, algorithms
+from PIL import Image, ImageDraw
+
+def print_kinematic_matrix():
+    # Define the original matrix
+    A = np.array([
+        [-np.sqrt(3)/2, 0.5, 1],
+        [0, -1, 1],
+        [np.sqrt(3)/2, -0.5, 1]
+    ])
+    print("Matrix A:")
+    # Calculate the inverted matrix
+    A_inv = np.linalg.inv(A)
+    # Print the inverted matrix
+    print("Inverted Matrix A^-1:")
+    print(A_inv)
+
+def create_gif(images, gif_path, duration=0.1, loop=0):
+    # Save the images as a gif
+    if images:
+        images[0].save(
+            gif_path,
+            save_all=True,
+            append_images=images[1:],
+            duration=duration,
+            loop=loop
+        )
+
+def visual_grid_to_image(visual_grid):
+    # Define the size of each cell in the image
+    cell_size = 20
+    img_size = (len(visual_grid) * cell_size, len(visual_grid[0]) * cell_size)
+
+    # Create a new image with white background
+    img = Image.new("RGB", img_size, "white")
+    draw = ImageDraw.Draw(img)
+
+    # Define colors
+    colors = {
+        "\033[91m": (255, 0, 0),    # Red
+        "\033[94m": (0, 0, 255),    # Blue
+        "\033[92m": (0, 255, 0),    # Green
+        "\033[93m": (255, 255, 0),  # Yellow
+        "\033[95m": (128, 0, 128),  # Purple
+        "\033[33m": (255, 165, 0),  # Orange
+        "\033[90m": (169, 169, 169) # Dark Gray
+    }
+
+    # Draw the grid
+    for y, row in enumerate(visual_grid):
+        for x, cell in enumerate(row):
+            if cell != ".":
+                symbol = cell[:6] # Extract the symbol
+                color_code = cell[:5]  # Extract the color code
+                
+                color = colors.get(color_code, (0, 0, 0))  # Default to black if color not found so agent
+                if symbol[-1].isdigit():
+                    draw.ellipse(
+                        [x * cell_size, y * cell_size, (x + 1) * cell_size, (y + 1) * cell_size],
+                        fill=color, outline=(0, 0, 0)
+                    )
+                else:
+                    draw.rectangle(
+                        [x * cell_size, y * cell_size, (x + 1) * cell_size, (y + 1) * cell_size],
+                        fill=color
+                    )
+
+    return img
 
 def plot_data(bests, avgs = None, medians = None, stds = None, completion_fitness = None, filename = None):
     x_values = np.arange(len(np.array(avgs)))
@@ -27,8 +91,119 @@ def plot_data(bests, avgs = None, medians = None, stds = None, completion_fitnes
     else:
         plt.show()
 
+def eaSimpleWithElitism(population, toolbox, cxpb, mutpb, ngen, stats=None,
+             halloffame=None, verbose=__debug__):
+    """This algorithm is similar to DEAP eaSimple() algorithm, with the modification that
+    halloffame is used to implement an elitism mechanism. The individuals contained in the
+    halloffame are directly injected into the next generation and are not subject to the
+    genetic operators of selection, crossover and mutation.
+    """
+    logbook = tools.Logbook()
+    logbook.header = ['gen', 'nevals'] + (stats.fields if stats else [])
+
+    # Evaluate the individuals with an invalid fitness
+    invalid_ind = [ind for ind in population if not ind.fitness.valid]
+    fitnesses = toolbox.map(toolbox.evaluate, invalid_ind)
+    for ind, fit in zip(invalid_ind, fitnesses):
+        ind.fitness.values = fit
+
+    if halloffame is None:
+        raise ValueError("halloffame parameter must not be empty!")
+
+    halloffame.update(population)
+    hof_size = len(halloffame.items) if halloffame.items else 0
+
+    record = stats.compile(population) if stats else {}
+    logbook.record(gen=0, nevals=len(invalid_ind), **record)
+    if verbose:
+        print(logbook.stream)
+
+    # Begin the generational process
+    for gen in range(1, ngen + 1):
+
+        # Select the next generation individuals
+        offspring = toolbox.select(population, len(population) - hof_size)
+
+        # Vary the pool of individuals
+        offspring = algorithms.varAnd(offspring, toolbox, cxpb, mutpb)
+
+        # Evaluate the individuals with an invalid fitness
+        invalid_ind = [ind for ind in offspring if not ind.fitness.valid]
+        fitnesses = toolbox.map(toolbox.evaluate, invalid_ind)
+        for ind, fit in zip(invalid_ind, fitnesses):
+            ind.fitness.values = fit
+
+        # add the best back to population:
+        offspring.extend(halloffame.items)
+
+        # Update the hall of fame with the generated individuals
+        halloffame.update(offspring)
+
+        # Replace the current population by the offspring
+        population[:] = offspring
+
+        # Append the current generation statistics to the logbook
+        record = stats.compile(population) if stats else {}
+        logbook.record(gen=gen, nevals=len(invalid_ind), **record)
+        if verbose:
+            print(logbook.stream)
+
+    return population, logbook
+
+def eaEvoStick(population, toolbox, ngen, stats=None, halloffame=None, verbose=__debug__):
+    logbook = tools.Logbook()
+    logbook.header = ['gen', 'nevals'] + (stats.fields if stats else [])
+
+    # Evaluate the individuals with an invalid fitness
+    invalid_ind = [ind for ind in population if not ind.fitness.valid]
+    fitnesses = toolbox.map(toolbox.evaluate, invalid_ind)
+    for ind, fit in zip(invalid_ind, fitnesses):
+        ind.fitness.values = fit
+
+    if halloffame is not None:
+        halloffame.update(population)
+
+    record = stats.compile(population) if stats else {}
+    logbook.record(gen=0, nevals=len(invalid_ind), **record)
+    if verbose:
+        print(logbook.stream)
+
+    # Begin the generational process
+    for gen in range(1, ngen + 1):
+        # Select the next generation individuals (elitism)
+        elites = toolbox.select(population)
+
+        # Clone the selected individuals
+        offspring = (list(map(toolbox.clone, elites)) * (len(population)))[:len(population) - len(elites)]
+
+
+        # Apply mutation on the offspring
+        for mutant in offspring:
+            toolbox.mutate(mutant)
+            del mutant.fitness.values
+
+        # Evaluate the individuals with an invalid fitness
+        invalid_ind = [ind for ind in offspring if not ind.fitness.valid]
+        fitnesses = toolbox.map(toolbox.evaluate, invalid_ind)
+        for ind, fit in zip(invalid_ind, fitnesses):
+            ind.fitness.values = fit
+
+        # The new population is composed of the elites and the offspring
+        population[:] = elites + offspring
+
+        # Update the hall of fame with the generated individuals
+        if halloffame is not None:
+            halloffame.update(population)
+
+        # Append the current generation statistics to the logbook
+        record = stats.compile(population) if stats else {}
+        logbook.record(gen=gen, nevals=len(invalid_ind), **record)
+        if verbose:
+            print(logbook.stream)
+
+    return population, logbook
+
 def selElitistAndTournament(individuals, k, frac_elitist = 0.1, tournsize = 3):
-    # TODO: not really elitism
     return tools.selBest(individuals, int(k*frac_elitist)) + tools.selTournament(individuals, int(k*(1-frac_elitist)), tournsize=tournsize)
 
 def inverse_sigmoid(y):
@@ -36,4 +211,6 @@ def inverse_sigmoid(y):
 
 def neat_sigmoid(x):
     return 1 / (1 + np.exp(-4.9 * x))
+
+
 
