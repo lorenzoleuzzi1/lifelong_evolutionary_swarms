@@ -69,7 +69,7 @@ def visual_grid_to_image(visual_grid):
 
     return img
 
-def plot_data(bests, avgs = None, medians = None, stds = None, completion_fitness = None, filename = None):
+def plot_evolution(bests, avgs = None, medians = None, stds = None, completion_fitness = None, filename = None):
     x_values = np.arange(len(np.array(avgs)))
     plt.plot(bests, label="best")
     
@@ -82,15 +82,16 @@ def plot_data(bests, avgs = None, medians = None, stds = None, completion_fitnes
     if completion_fitness is not None:
         plt.axhline(y=completion_fitness, color='g', linestyle='--', label='completion criterion')
     
-    plt.ylim([-100, 100])
     plt.legend()
-    plt.title("Fitness over generations")
+    plt.title("Evolution")
+    plt.xlabel("Generation")
+    plt.ylabel("Fitness")
     
     if filename is not None:
         plt.savefig(filename)
     else:
         plt.show()
-
+# TODO: maybe put them in a deap python file
 def eaSimpleWithElitism(population, toolbox, cxpb, mutpb, ngen, stats=None,
              halloffame=None, verbose=__debug__):
     """This algorithm is similar to DEAP eaSimple() algorithm, with the modification that
@@ -175,7 +176,6 @@ def eaEvoStick(population, toolbox, ngen, stats=None, halloffame=None, verbose=_
 
         # Clone the selected individuals
         offspring = (list(map(toolbox.clone, elites)) * (len(population)))[:len(population) - len(elites)]
-
 
         # Apply mutation on the offspring
         for mutant in offspring:

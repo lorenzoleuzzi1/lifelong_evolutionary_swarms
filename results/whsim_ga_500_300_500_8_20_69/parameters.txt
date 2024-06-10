@@ -1,0 +1,12 @@
+Name: whsim_ga_500_300_500_8_20_69
+Algortihm: GA DEAP 
+Generations: 300
+Steps: 500
+Population size: 500
+Number of agents: 8
+Number of blocks: 20
+Initial setting: Random
+Seed: 69
+Best fitness: 7.949300000000008
+Info: {'completed': [(9, 3, 0), (7, 3, 1)]}
+Time: 35937.151099443436

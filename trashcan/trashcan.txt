@@ -303,3 +303,47 @@ def _calculate_distance_direction(self, pointA, pointB, distance_type='euclidean
             # All the color objective must be in the blocks colors
             for color, _ in objective:
                 assert color in initial_setting['colors'], f"Color {color} in objective is not present in the arena"
+
+
+
+    
+EASY_INITIAL_SETTING = {
+            'agents': np.array([[0, 5], [0, 10], [0, 15]], dtype=float),
+            'headings': np.array([DOWN, DOWN, DOWN], dtype=float), 
+            'blocks': np.array([[9, 16], [10, 12], [11, 6]], dtype=float),
+            'colors': np.array([RED, GREEN, RED], dtype=int)
+            }
+
+MEDIUM_INITIAL_SETTING = {
+            'agents': np.array([[0, 5], [0, 10], [0, 15]], dtype=float),
+            'headings': np.array([DOWN, DOWN, DOWN], dtype=float),
+            'blocks': np.array([[9, 16], [11, 5], [6, 5], [10, 11], [8, 8]], dtype=float),
+            'colors': np.array([RED, RED, BLUE, GREEN, RED], dtype=int)
+            }
+
+HARD_INITIAL_SETTING = {
+            'agents': np.array([[0, 3], [0, 6], [0, 9], [0, 12], [0, 15]], dtype=float),
+            'headings': np.array([DOWN, DOWN, DOWN, DOWN, DOWN], dtype=float),
+            'blocks': np.array([[9, 16], [13, 7], [11, 3], [10, 11], [9, 7], [16, 8], [15, 17],
+                               [7, 5], [15, 3], [11, 11], [8, 12], [15, 13], [7, 4]], dtype=float),
+            'colors': np.array([RED, RED, RED, RED, RED, RED, RED, RED, BLUE, BLUE, 
+                                GREEN, YELLOW, PURPLE], dtype=int)
+            }
+
+
+if self.nest == UP:
+                    low = (0, 0)
+                    high = (3, SIMULATION_ARENA_SIZE)
+                    heading = DOWN
+                elif self.nest == DOWN:
+                    low = (SIMULATION_ARENA_SIZE - 3, 0)
+                    high = (SIMULATION_ARENA_SIZE, SIMULATION_ARENA_SIZE)
+                    heading = UP
+                elif self.nest == LEFT:
+                    low = (0, 0)
+                    high = (SIMULATION_ARENA_SIZE, 3)
+                    heading = RIGHT
+                elif self.nest == RIGHT:
+                    low = (0, SIMULATION_ARENA_SIZE - 3)
+                    high = (3, SIMULATION_ARENA_SIZE)
+                    heading = LEFT

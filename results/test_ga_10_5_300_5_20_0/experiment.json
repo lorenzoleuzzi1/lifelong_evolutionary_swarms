@@ -1,0 +1,16 @@
+{
+    "name": "test_ga_10_5_300_5_20_0",
+    "algorithm": "ga",
+    "generations": 5,
+    "ep_duration": 10,
+    "population_size": 300,
+    "agents": 5,
+    "blocks": 20,
+    "seed": 0,
+    "best_fitness": 0.0,
+    "info": {
+        "retrieved": []
+    },
+    "retrieved": 0,
+    "time": 9.78945803642273
+}

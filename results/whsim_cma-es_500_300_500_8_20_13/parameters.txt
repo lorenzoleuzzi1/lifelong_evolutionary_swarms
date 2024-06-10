@@ -1,0 +1,12 @@
+Name: whsim_cma-es_500_300_500_8_20_13
+Algortihm: CMA-ES DEAP 
+Generations: 300
+Steps: 500
+Population size: 500
+Number of agents: 8
+Number of blocks: 20
+Initial setting: Random
+Seed: 13
+Best fitness: 128.0119
+Info: {'completed': [(9, 3, 3), (0, 3, 7), (3, 3, 2), (6, 3, 4), (2, 3, 1), (1, 3, 0), (4, 3, 6), (7, 3, 3), (5, 3, 4), (8, 3, 1)]}
+Time: 49031.63603973389

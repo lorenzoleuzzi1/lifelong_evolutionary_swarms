@@ -1,6 +1,6 @@
 import environment 
 import neural_controller 
-from utils import neat_sigmoid, plot_data, eaSimpleWithElitism, eaEvoStick 
+from utils import neat_sigmoid, plot_evolution, eaSimpleWithElitism, eaEvoStick 
 import random
 import numpy as np
 import neat
@@ -83,7 +83,7 @@ def run_neat(filename, n_generations, n_steps, population_size, initial_setting,
     avgs = stats.get_fitness_mean()
     medians = stats.get_fitness_median()
     stds = stats.get_fitness_stdev()
-    plot_data(bests, avgs = avgs, medians = medians, 
+    plot_evolution(bests, avgs = avgs, medians = medians, 
                     completion_fitness=env.n_task * (environment.REWARD_PICK + environment.REWARD_DROP),
                     filename = f"results/{filename}/evolution_plot.png")
     
@@ -181,7 +181,7 @@ def run_ga(filename, n_generations, n_steps, population_size, initial_setting, n
     toolbox.register("mate", tools.cxTwoPoint)  # Crossover function
     # toolbox.register("mate", tools.cxOnePoint)  # Crossover function
     # toolbox.register("mate", tools.cxUniform, indpb=0.5)  # 50% chance for each weight
-    toolbox.register("mutate", tools.mutGaussian, mu=0, sigma=1, indpb=0.1)  # Mutation function
+    toolbox.register("mutate", tools.mutGaussian, mu=0, sigma=1, indpb=0.1) 
 
     # Statistics to keep track of the evolution
     stats = tools.Statistics(lambda ind: ind.fitness.values)
@@ -196,7 +196,7 @@ def run_ga(filename, n_generations, n_steps, population_size, initial_setting, n
 
     start = time.time()
     # Run the genetic algorithm
-    pop, log = eaSimpleWithElitism(pop, toolbox, cxpb=0.8, mutpb=0.5, ngen=n_generations,
+    pop, log = eaSimpleWithElitism(pop, toolbox, cxpb=0.8, mutpb=0.1, ngen=n_generations,
                                      stats=stats, halloffame=hof, verbose=True)
     end = time.time()
     # mu = 100
@@ -223,7 +223,7 @@ def run_ga(filename, n_generations, n_steps, population_size, initial_setting, n
         stds.append(stat['std'])
         medians.append(stat['median'])
 
-    plot_data(bests, avgs = avgs, medians = medians, 
+    plot_evolution(bests, avgs = avgs, medians = medians, 
                     completion_fitness=env.n_task * (environment.REWARD_PICK + environment.REWARD_DROP),
                     filename = f"results/{filename}/evolution_plot.png")
     
@@ -327,7 +327,7 @@ def run_cmaes(filename, n_generations, n_steps, population_size, initial_setting
     hof = tools.HallOfFame(1)
     
     start = time.time()
-    log = algorithms.eaGenerateUpdate(toolbox, ngen=n_generations, stats=stats, halloffame=hof)
+    pop, log = algorithms.eaGenerateUpdate(toolbox, ngen=n_generations, stats=stats, halloffame=hof)
     end = time.time()
 
     best_individual = hof[0]
@@ -349,7 +349,7 @@ def run_cmaes(filename, n_generations, n_steps, population_size, initial_setting
         stds.append(stat['std'])
         medians.append(stat['median'])
 
-    plot_data(bests, avgs = avgs, medians = medians, 
+    plot_evolution(bests, avgs = avgs, medians = medians, 
                     completion_fitness=env.n_task * (environment.REWARD_PICK + environment.REWARD_DROP),
                     filename = f"results/{filename}/evolution_plot.png")
     
@@ -481,7 +481,7 @@ def run_evostick(filename, n_generations, n_steps, population_size, initial_sett
         stds.append(stat['std'])
         medians.append(stat['median'])
 
-    plot_data(bests, avgs = avgs, medians = medians, 
+    plot_evolution(bests, avgs = avgs, medians = medians, 
                     completion_fitness=env.n_task * (environment.REWARD_PICK + environment.REWARD_DROP),
                     filename = f"results/{filename}/evolution_plot.png")
     

@@ -1,0 +1,12 @@
+Name: whsim_neat_500_300_500_8_20_69
+Algortihm: NEAT 
+Generations: 300
+Steps: 500
+Population size: 500
+Number of agents: 8
+Number of blocks: 20
+Initial setting: Random
+Seed: 69
+Best fitness: 22.453300000000013
+Info: {'completed': [(9, 3, 1), (6, 3, 4), (7, 3, 5), (5, 3, 2), (2, 3, 0), (8, 3, 5), (4, 3, 4)]}
+Time: 52730.95465159416

@@ -1,0 +1,16 @@
+{
+    "name": "re_cma-es_50_5_50_8_30_1_drift5",
+    "algorithm": "cma-es",
+    "generations": 5,
+    "ep_duration": 50,
+    "population_size": 50,
+    "agents": 8,
+    "blocks": 30,
+    "seed": 1,
+    "best_fitness": -1.0,
+    "info": {
+        "retrieved": []
+    },
+    "retrieved": 0,
+    "time": 8.89991307258606
+}
