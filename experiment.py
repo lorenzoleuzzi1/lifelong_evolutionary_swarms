@@ -25,6 +25,7 @@ class EvoSwarmExperiment:
                 controller_deap : neural_controller.NeuralController = None,
                 env : environment.SwarmForagingEnv = None,
                 config_path_neat : str = None,
+                seed : int = 0
                 ):
         
         self.evolutionary_algorithm = evolutionary_algorithm
@@ -33,6 +34,7 @@ class EvoSwarmExperiment:
         self.env = env
         self.controller_deap = controller_deap
         self.config_path_neat = config_path_neat
+        self.seed = seed
         
         self.experiment_name = None
         self.best_individual = None
@@ -85,8 +87,8 @@ class EvoSwarmExperiment:
             genome.fitness = 0.0
             
             net = neat.nn.FeedForwardNetwork.create(genome, config)
-            obs, _ = self.env.reset()
-
+            obs, _ = self.env.reset(seed=self.seed)
+            
             while True:
                 nn_inputs = self.env.process_observation(obs)
                 nn_outputs = np.array([net.activate(nn_input) for nn_input in nn_inputs])
@@ -100,11 +102,10 @@ class EvoSwarmExperiment:
     
     def _calculate_fitness_deap(self, individual):
         fitness = 0
-        obs, _ = self.env.reset()
+        obs, _ = self.env.reset(seed=self.seed)
         
-        # Set the weights of the network
-        self.controller_deap.set_weights_from_vector(individual)
-
+        self.controller_deap.set_weights_from_vector(individual) # Set the weights of the network
+        
         while True:
             nn_inputs = self.env.process_observation(obs)
             nn_outputs = np.array(self.controller_deap.predict(nn_inputs))
@@ -122,9 +123,6 @@ class EvoSwarmExperiment:
     def _run_neat(self, generations):
         if self.config_path_neat is None:
             raise ValueError("Neat config path is not set. Set the path to the config file first.")
-        
-        self.env.reset()
-        self.env.render()
 
         # Set configuration file
         config = neat.config.Config(neat.DefaultGenome, neat.DefaultReproduction,
@@ -148,9 +146,6 @@ class EvoSwarmExperiment:
     def _run_ga(self, generations):
         if self.controller_deap is None:
             raise ValueError("DEAP controller is not set. Set the controller first.")
-            
-        self.env.reset()
-        self.env.render()
         
         if self.toolbox_deap is None:
             # Set up the fitness and individual
@@ -158,7 +153,7 @@ class EvoSwarmExperiment:
             creator.create("Individual", list, fitness=creator.FitnessMax)
             self.toolbox_deap = base.Toolbox()
             self.toolbox_deap.register("evaluate", self._calculate_fitness_deap)  # Evaluation function
-            self.toolbox_deap.register("attr_float", random.uniform, -5.0, 5.0)  # Attribute generator
+            self.toolbox_deap.register("attr_float", random.uniform, -1.0, 1.0)  # Attribute generator
             self.toolbox_deap.register("individual", tools.initRepeat, creator.Individual,
                             self.toolbox_deap.attr_float, n=self.controller_deap.total_weights)  # Individual generator
             self.toolbox_deap.register("population", tools.initRepeat, list, self.toolbox_deap.individual)
@@ -184,8 +179,11 @@ class EvoSwarmExperiment:
 
         start = time.time()
         # Run the genetic algorithm
-        self.population, log = eaSimpleWithElitism(self.population, self.toolbox_deap, cxpb=0.8, mutpb=0.1, 
-                                                   ngen=generations, stats=stats, halloffame=hof, verbose=True)
+        # TODO use standard algorithm
+        self.population, log = algorithms.eaSimple(self.population, self.toolbox_deap, cxpb=0.8, mutpb=0.1,
+                                                    ngen=generations, stats=stats, halloffame=hof, verbose=True)
+        # self.population, log = eaSimpleWithElitism(self.population, self.toolbox_deap, cxpb=0.8, mutpb=0.1, 
+        #                                            ngen=generations, stats=stats, halloffame=hof, verbose=True)
         end = time.time()
         
         self.best_individual = hof[0]
@@ -193,8 +191,8 @@ class EvoSwarmExperiment:
         self.log = log
 
     def _run_cmaes(self, generations):
-        self.env.reset()
-        self.env.render()
+        if self.controller_deap is None:
+            raise ValueError("DEAP controller is not set. Set the controller first.")
         
         if self.toolbox_deap is None:
             creator.create("FitnessMax", base.Fitness, weights=(1.0,))  # Maximization problem
@@ -224,8 +222,8 @@ class EvoSwarmExperiment:
         self.log = log
 
     def _run_evostick(self, generations):
-        self.env.reset()
-        self.env.render()
+        if self.controller_deap is None:
+            raise ValueError("DEAP controller is not set. Set the controller first.")
         
         n_elite = int(0.2 * self.population_size) # 20% of the population will be copied to the next generation (elitism)
         if self.toolbox_deap is None:
@@ -270,12 +268,16 @@ class EvoSwarmExperiment:
         
         # Set up the neural network controller
         if self.evolutionary_algorithm == 'neat':
+            if self.config_path_neat is None:
+                raise ValueError("Neat config path is not set. Set the path to the config file first.")
             config = neat.config.Config(neat.DefaultGenome, neat.DefaultReproduction,
                                         neat.DefaultSpeciesSet, neat.DefaultStagnation, self.config_path_neat)
             
             config.genome_config.add_activation('neat_sigmoid', neat_sigmoid)
             controller_neat = neat.nn.FeedForwardNetwork.create(self.best_individual, config)
         elif self.evolutionary_algorithm in DEAP_ALGORITHMS:
+            if self.controller_deap is None:
+                raise ValueError("DEAP controller is not set. Set the controller first.")
             self.controller_deap.set_weights_from_vector(self.best_individual)
         
         frames = []
@@ -399,6 +401,9 @@ class EvoSwarmExperiment:
         print(f"Number of agents: {self.env.n_agents}")
         print(f"Number of blocks: {self.env.n_blocks}")
         print(f"Seed: {self.env.seed}")
+        
+        self.env.reset(seed=self.seed)
+        self.env.render() # Show the environment
 
         if self.evolutionary_algorithm == "neat":
             self._run_neat(generations)

@@ -347,3 +347,15 @@ if self.nest == UP:
                     low = (0, SIMULATION_ARENA_SIZE - 3)
                     high = (3, SIMULATION_ARENA_SIZE)
                     heading = LEFT
+
+
+                        def _is_in_drop_zone(self, agent_position):
+    def _is_close_to_edge(self, agent_position):
+        if agent_position[0] < 1 or agent_position[0] > self.size - 2:
+            return True
+        if agent_position[1] < 1 or agent_position[1] > self.size - 2:
+            return True
+        return False
+
+    def _is_correct_drop(self, agent_position, block_idx):
+        return agent_position[0] < 1 and self.blocks_color[block_idx] == self.target_color

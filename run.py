@@ -12,7 +12,7 @@ def main(name,
         n_blocks,
         seed):
     
-    env = SwarmForagingEnv(n_agents = n_agents, n_blocks = n_blocks, seed = seed, duration=steps)
+    env = SwarmForagingEnv(n_agents = n_agents, n_blocks = n_blocks, duration=steps)
     
     
     controller_deap = None
@@ -27,7 +27,7 @@ def main(name,
         controller_deap = NeuralController(layer_sizes, hidden_activation="neat_sigmoid", output_activation="neat_sigmoid")
 
     experiment = EvoSwarmExperiment(env = env, name = name, evolutionary_algorithm=script, population_size=population_size, 
-                                    controller_deap=controller_deap, config_path_neat=config_path_neat)
+                                    controller_deap=controller_deap, config_path_neat=config_path_neat, seed = seed)
     experiment.run(generations)
 
         

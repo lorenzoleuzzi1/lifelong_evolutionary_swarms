@@ -1,0 +1,23 @@
+{
+    "name": "d_ga_500_50_500_8_20_99",
+    "algorithm": "ga",
+    "generations": 51,
+    "ep_duration": 500,
+    "population_size": 500,
+    "agents": 8,
+    "blocks": 20,
+    "seed": 99,
+    "best_fitness": 4.0,
+    "info": {
+        "retrieved": [
+            [
+                338,
+                5,
+                3,
+                9
+            ]
+        ]
+    },
+    "retrieved": 1,
+    "time": 4923.423381567001
+}

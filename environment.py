@@ -60,14 +60,14 @@ class SwarmForagingEnv(gym.Env):
             size = SIMULATION_ARENA_SIZE, 
             n_agents = 3, 
             n_blocks = 10,
-            rate_objective_block = 0.5, 
+            rate_target_block = 0.5, 
             n_neighbors = 3,
             sensor_range = SIMULATION_SENSOR_RANGE,
             max_wheel_velocity = SIMULATION_MAX_WHEEL_VELOCITY,
             sensitivity = 0.5, # How close the agent can get to the block to pick it up 
             time_step = TIME_STEP, # in seconds
             duration = 500, # max number of steps for an episode
-            max_retrives = 20, # max number of retrives for an episode
+            max_retrieves = 20, # max number of retrives for an episode
             seed = 0,
             ):
         
@@ -86,16 +86,13 @@ class SwarmForagingEnv(gym.Env):
         
         self.agents_location = np.zeros((self.n_agents, 2), dtype=float)
         self._agents_carrying = np.full(self.n_agents, -1, dtype=int)
-        self._agents_closest_objective_distance = np.full(self.n_agents, -1, dtype=float)
         self.agents_heading = np.zeros(self.n_agents, dtype=float)
 
         self.blocks_location = np.zeros((self.n_blocks, 2), dtype=float)
         self.blocks_color = np.zeros(self.n_blocks, dtype=int)
         self._blocks_picked_up = np.full(self.n_blocks, -1, dtype=int)
         self._blocks_initial_distance_to_dropzone = np.full(self.n_blocks, -1, dtype=float)
-        self.rate_objective_block = rate_objective_block
-
-        self._initial_setting = None
+        self.rate_target_block = rate_target_block
 
         self._distance_matrix_agent_agent = np.zeros((self.n_agents, self.n_blocks), dtype=float)
         self._direction_matrix_agent_agent = np.zeros((self.n_agents, self.n_blocks), dtype=float)
@@ -113,9 +110,10 @@ class SwarmForagingEnv(gym.Env):
         self._rewards = np.zeros(self.n_agents, dtype=int)
 
         self.duration = duration
-        self.max_retrives = max_retrives
+        self._retrieved = []
+        self.max_retrieves = max_retrieves
         self.current_step = 0
-
+        
         self._colors_map = {
             RED: "\033[91m",  # Red
             BLUE: "\033[94m",  # Blue
@@ -150,38 +148,40 @@ class SwarmForagingEnv(gym.Env):
                                                     (SIMULATION_ARENA_SIZE - 2, SIMULATION_ARENA_SIZE - 2), 
                                                     2)
     
-    def create_initial_setting(self):
+    def create_initial_setting(self, distribution="uniform"):
         # Blocks
-        # n_target_blocks = int(self.n_blocks * self.rate_objective_block)
-        # n_other_blocks = self.n_blocks - n_target_blocks
-        # # TODO: if self.nest is not necessary UP change the code below
-        # target_blocks_location = np.random.randint((5, 1), 
-        #                                             (SIMULATION_ARENA_SIZE - 2, SIMULATION_ARENA_SIZE - 2), 
-        #                                             (n_target_blocks, 2))
-        # objective_blocks_color = np.full(n_target_blocks, self.target_color)
+        if distribution == "uniform":
+            blocks_locations = np.zeros((self.n_blocks, 2), dtype=float)
+            blocks_colors = np.zeros(self.n_blocks, dtype=int)
+            for i in range(self.n_blocks):
+                low = (5, 1)
+                high = (SIMULATION_ARENA_SIZE - 2, SIMULATION_ARENA_SIZE - 2)
+                blocks_colors[i] = (i % 5) + RED # 5 colors
+                while True:
+                    blocks_locations[i] = np.random.randint(low, high, 2)
+                    # Check if the new position is valid (not occupied by another block)
+                    if i == 0 or not np.any(np.linalg.norm(blocks_locations[i] - blocks_locations[:i], axis=1) < 1):
+                        break
+        else:
+            n_target_blocks = int(self.n_blocks * self.rate_target_block)
+            n_other_blocks = self.n_blocks - n_target_blocks
+    
+            target_blocks_location = np.random.randint((5, 1), 
+                                                        (SIMULATION_ARENA_SIZE - 2, SIMULATION_ARENA_SIZE - 2), 
+                                                        (n_target_blocks, 2))
+            objective_blocks_color = np.full(n_target_blocks, self.target_color)
+            
+            other_blocks_location = np.random.randint((5, 1), 
+                                                    (SIMULATION_ARENA_SIZE - 2, SIMULATION_ARENA_SIZE - 2),
+                                                    (n_other_blocks, 2))
+            other_blocks_color = []
+            for i in range(n_other_blocks):
+                other_blocks_color.append(np.random.randint(3, 7))
+                while other_blocks_color[i] == self.target_color:
+                    other_blocks_color[i] = np.random.randint(3, 7)
+            blocks_locations = np.concatenate((target_blocks_location, other_blocks_location), axis=0)
+            blocks_colors = np.concatenate((objective_blocks_color, other_blocks_color), axis=0)
         
-        # other_blocks_location = np.random.randint((5, 1), 
-        #                                         (SIMULATION_ARENA_SIZE - 2, SIMULATION_ARENA_SIZE - 2),
-        #                                         (n_other_blocks, 2))
-        # other_blocks_color = []
-        # for i in range(n_other_blocks):
-        #     other_blocks_color.append(np.random.randint(4, 7))
-        #     while other_blocks_color[i] == self.target_color:
-        #         other_blocks_color[i] = np.random.randint(4, 7)
-        # initial_blocks = np.concatenate((target_blocks_location, other_blocks_location), axis=0)
-        # initial_colors = np.concatenate((objective_blocks_color, other_blocks_color), axis=0)
-        # Blocks
-        blocks_locations = np.zeros((self.n_blocks, 2), dtype=float)
-        blocks_colors = np.zeros(self.n_blocks, dtype=int)
-        for i in range(self.n_blocks):
-            low = (5, 1)
-            high = (SIMULATION_ARENA_SIZE - 2, SIMULATION_ARENA_SIZE - 2)
-            blocks_colors[i] = (i % 5) + RED # 5 colors
-            while True:
-                blocks_locations[i] = np.random.randint(low, high, 2)
-                # Check if the new position is valid (not occupied by another block)
-                if i == 0 or not np.any(np.linalg.norm(blocks_locations[i] - blocks_locations[:i], axis=1) < 1):
-                    break
         # Agents
         agents_locations = np.zeros((self.n_agents, 2), dtype=float)
         for i in range(self.n_agents):
@@ -194,22 +194,12 @@ class SwarmForagingEnv(gym.Env):
                 if i == 0 or not np.any(np.linalg.norm(agents_locations[i] - agents_locations[:i], axis=1) < 1):
                     break
             
-        self._initial_setting = {
+        return {
             'agents': np.array(agents_locations, dtype=float),
             'headings': np.full(self.n_agents, heading, dtype=float),
             'blocks': np.array(blocks_locations, dtype=float),
             'colors': np.array(blocks_colors, dtype=int),
             }
-    
-    def _is_close_to_edge(self, agent_position):
-        if agent_position[0] < 1 or agent_position[0] > self.size - 2:
-            return True
-        if agent_position[1] < 1 or agent_position[1] > self.size - 2:
-            return True
-        return False
-
-    def _is_correct_drop(self, agent_position, block_idx):
-        return agent_position[0] < 1 and self.blocks_color[block_idx] == self.target_color
 
     def _update_directions_matrix(self):
         # Agents-Blocks directions matrix
@@ -288,29 +278,24 @@ class SwarmForagingEnv(gym.Env):
             obs.append({"neighbors" : self._neighbors[i], "heading": self.agents_heading[i], "carrying" : carrying})
         return obs
     
-    def reset(self, seed=None):
-        if seed is not None:
-            np.random.seed(seed=seed)
-
+    def reset(self, seed=None, distribution="uniform"):
+        np.random.seed(seed=seed) # + 1 to avoid the same initial setting
+                
         self._agents_carrying = np.full(self.n_agents, -1, dtype=int)
         self._blocks_picked_up = np.full(self.n_blocks, -1, dtype=int)
         self._neighbors = np.zeros((self.n_agents, self.n_neighbors, 3), dtype=float)
         self._previous_neighbors = np.zeros((self.n_agents, self.n_neighbors, 3), dtype=float)
-        self._agents_closest_objective_distance = np.full(self.n_agents, -1, dtype=float)
         
-        if self._initial_setting is None:
-            self.create_initial_setting()
-            
-        self.agents_location = self._initial_setting['agents'].copy()
-        self.agents_heading = self._initial_setting['headings'].copy()
-        self.blocks_location = self._initial_setting['blocks'].copy()
-        self.blocks_color = self._initial_setting['colors'].copy()
+        initial_setting = self.create_initial_setting(distribution=distribution)
+        self.agents_location = initial_setting['agents'].copy()
+        self.agents_heading = initial_setting['headings'].copy()
+        self.blocks_location = initial_setting['blocks'].copy()
+        self.blocks_color = initial_setting['colors'].copy()
                                                                                                        
-        self.n_retrives = 0
         self.current_step = 0
         
         self._rewards = np.zeros(self.n_agents)
-        self._retrived = []
+        self._retrieved = []
         info = {}
         self._update_directions_matrix()
         self._update_distance_matrix()
@@ -385,23 +370,18 @@ class SwarmForagingEnv(gym.Env):
 
             # --- DROP ---
             # Check if the agent is dropping a block
-            if self._agents_carrying[i] != -1: # If the agent is carrying a block
-                # If the agent is close to an edge
-                if self._is_close_to_edge(self.agents_location[i]):
-                    # Reward the agent for dropping the block
-                    if self._is_correct_drop(self.agents_location[i], self._agents_carrying[i]):
-                        self._retrieved.append((self.current_step, i, self.blocks_color[self._agents_carrying[i]],
-                                                self._agents_carrying[i]))
-                        self._rewards[i] += REWARD_DROP
-                    else:
-                        self._rewards[i] -= REWARD_DROP
+            if self._agents_carrying[i] != -1 and self.agents_location[i][0] < 1: # If the agent is in the drop zone while carrying a block
+                if self.blocks_color[self._agents_carrying[i]] == self.target_color:
+                    self._retrieved.append((self.current_step, i, int(self.blocks_color[self._agents_carrying[i]]),
+                                            int(self._agents_carrying[i])))
+                    self._rewards[i] += REWARD_DROP
+                else:
+                    self._rewards[i] -= REWARD_DROP
                     
-                    # Reset block and place it back in the arena
-                    self._reposition_block(self._agents_carrying[i]) 
-                    self._blocks_picked_up[self._agents_carrying[i]] = -1
-                    self._agents_carrying[i] = -1
-
-                    self._agents_closest_objective_distance[i] = -1
+                # Reset block and place it back in the arena
+                self._reposition_block(self._agents_carrying[i]) 
+                self._blocks_picked_up[self._agents_carrying[i]] = -1
+                self._agents_carrying[i] = -1
             # ------------
                 
         self._detect()
@@ -411,7 +391,8 @@ class SwarmForagingEnv(gym.Env):
         
         # Check termination
         done = False
-        if len(self._retrieved) >= self.max_retrives: 
+        if len(self._retrieved) >= self.max_retrieves:
+            print("Max retrieves reached") 
             done = True
         truncated = False
         if self.current_step >= self.duration: 

@@ -1,0 +1,53 @@
+{
+    "name": "d_neat_500_50_500_8_20_99_drift5",
+    "algorithm": "neat",
+    "generations": 50,
+    "ep_duration": 500,
+    "population_size": 500,
+    "agents": 8,
+    "blocks": 20,
+    "seed": 99,
+    "best_fitness": 18.0,
+    "info": {
+        "retrieved": [
+            [
+                137,
+                7,
+                5,
+                9
+            ],
+            [
+                162,
+                3,
+                5,
+                0
+            ],
+            [
+                171,
+                5,
+                5,
+                3
+            ],
+            [
+                180,
+                6,
+                5,
+                7
+            ],
+            [
+                191,
+                2,
+                5,
+                5
+            ],
+            [
+                470,
+                5,
+                5,
+                6
+            ]
+        ]
+    },
+    "retrieved": 6,
+    "time": 7972.491772890091
+}
