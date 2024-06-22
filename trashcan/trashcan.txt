@@ -359,3 +359,16 @@ if self.nest == UP:
 
     def _is_correct_drop(self, agent_position, block_idx):
         return agent_position[0] < 1 and self.blocks_color[block_idx] == self.target_color
+
+
+            # # Handle collisions
+        # distances = np.linalg.norm(self.agents_location[:, np.newaxis] - self.agents_location, axis=2)
+        # collision_matrix = (distances < self.sensitivity) & (distances > 0)
+        # colliding_agents = np.unique(np.where(collision_matrix)[0])
+        # if colliding_agents.size > 0:
+        #     # self._rewards[colliding_agents] += REWARD_COLLISION  # Penalize collision
+        #     # If collision, rotate at max speed
+        #     self.agents_location[colliding_agents] = old_agents_location[colliding_agents]
+        #     omega_c = self.max_wheel_velocity / (ROBOT_SIZE / 2)
+        #     self.agents_heading[colliding_agents] = np.mod(
+        #         old_agents_heading[colliding_agents] + np.degrees(omega_c * self.time_step), 360)

@@ -1,5 +1,5 @@
 from experiment import EvoSwarmExperiment, EVOLUTIONARY_ALGORITHMS
-from environment import SwarmForagingEnv
+from environment import SwarmForagingEnv, BLUE, RED
 from neural_controller import NeuralController
 import argparse
 
@@ -10,9 +10,11 @@ def main(name,
         population_size,
         n_agents, 
         n_blocks,
-        seed):
+        distribution,
+        seed, 
+        drifts):
     
-    env = SwarmForagingEnv(n_agents = n_agents, n_blocks = n_blocks, duration=steps)
+    env = SwarmForagingEnv(n_agents = n_agents, n_blocks = n_blocks, duration=steps, distribution=distribution)
     
     controller_deap = None
     config_path_neat = None
@@ -28,7 +30,10 @@ def main(name,
     experiment = EvoSwarmExperiment(env = env, name = name, evolutionary_algorithm=script, population_size=population_size, 
                                     controller_deap=controller_deap, config_path_neat=config_path_neat, seed = seed)
     experiment.run(generations)
-
+    
+    for drift in drifts:
+        experiment.change_objective(drift)
+        experiment.run(generations, n_eval_forgetting=5)
         
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Evolutionary swarm parameters.')
@@ -39,7 +44,7 @@ if __name__ == "__main__":
     parser.add_argument('--population_size', type=int, default=300,help='The size of the population for the evolutionary algorithm.')
     parser.add_argument('--agents', type=int, default=5,help='The number of agents in the arena.')
     parser.add_argument('--blocks', type=int, default=20,help='The number of blocks in the arena.')
-    parser.add_argument('--distribution', type=str, default=0,help='The distribution of the blocks in the arena. Must be one of: uniform or biased.')
+    parser.add_argument('--distribution', type=str, default="uniform", help='The distribution of the blocks in the arena. Must be one of: uniform or biased.')
     parser.add_argument('--seed', type=int, default=0,help='The seed for the random number generator.')
     args = parser.parse_args()
     
@@ -60,6 +65,8 @@ if __name__ == "__main__":
     if args.seed < 0:
         raise ValueError("Seed must be greater than or equal to 0")
     
+    drifts = [BLUE, RED]
+    
     main(args.name, 
         args.evo, 
         args.steps,
@@ -68,4 +75,5 @@ if __name__ == "__main__":
         args.agents, 
         args.blocks, 
         args.distribution,
-        args.seed)
+        args.seed,
+        drifts)

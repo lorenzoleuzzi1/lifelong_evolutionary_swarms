@@ -13,8 +13,8 @@ echo ${nodes_array[@]}
 
 # Launching different instances of the python script with different parameters
 echo "Launching Python scripts with different parameters:"
-srun --nodes=1 --ntasks=1 -w ${nodes_array[0]} python3.11 run.py --name re --evo neat --steps 500 --generations 300 --population_size 500 --agents 8 --blocks 30 --seed 1 &
-srun --nodes=1 --ntasks=1 -w ${nodes_array[1]} python3.11 run.py --name re --evo cma-es --steps 500 --generations 300 --population_size 500 --agents 8 --blocks 30 --seed 1 &
-srun --nodes=1 --ntasks=1 -w ${nodes_array[2]} python3.11 run.py --name re --evo ga --steps 500 --generations 300 --population_size 500 --agents 8 --blocks 30 --seed 1 &
-srun --nodes=1 --ntasks=1 -w ${nodes_array[2]} python3.11 run.py --name re --evo evostick --steps 500 --generations 300 --population_size 500 --agents 8 --blocks 30 --seed 1 &
+srun --nodes=1 --ntasks=1 -w ${nodes_array[0]} python3.11 run.py --name uni --evo neat --steps 500 --generations 300 --population_size 300 --agents 8 --blocks 30 --seed 1 &
+srun --nodes=1 --ntasks=1 -w ${nodes_array[1]} python3.11 run.py --name uni --evo cma-es --steps 500 --generations 300 --population_size 300 --agents 8 --blocks 30 --seed 1 &
+srun --nodes=1 --ntasks=1 -w ${nodes_array[2]} python3.11 run.py --name uni --evo ga --steps 500 --generations 300 --population_size 300 --agents 8 --blocks 30 --seed 1 &
+srun --nodes=1 --ntasks=1 -w ${nodes_array[2]} python3.11 run.py --name uni --evo evostick --steps 500 --generations 300 --population_size 300 --agents 8 --blocks 30 --seed 1 &
 wait # Wait for all background jobs to finish

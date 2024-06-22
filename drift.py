@@ -4,14 +4,12 @@ from experiment import EvoSwarmExperiment, EVOLUTIONARY_ALGORITHMS
 import os
 
 colors = [RED, BLUE, GREEN, YELLOW, PURPLE]
-def main(experiment_path, new_target, generations):
+def main(experiment_path, new_targets, generations):
     experiment = EvoSwarmExperiment()
     experiment.load(experiment_path)
-    experiment.change_objective(new_target) 
-    # TODO: change the environment to the new target
-    experiment.env = SwarmForagingEnv(target_color=GREEN,
-        n_agents = experiment.env.n_agents, n_blocks = experiment.env.n_blocks, seed = experiment.env.seed, duration=experiment.env.duration)
-    experiment.run(generations)
+    for new_target in new_targets:
+        experiment.change_objective(new_target) 
+        experiment.run(generations, n_eval_forgetting=5)
 
 if __name__ == "__main__":
     # parser = argparse.ArgumentParser(description='Evolutionary swarm drift (change of objective).')
@@ -24,4 +22,4 @@ if __name__ == "__main__":
     #     raise ValueError(f"Experiment {args.experiment} does not exist.")
 
     # main(args.experiment, args.drift)
-    main("results/d_neat_500_50_500_8_20_99", GREEN, 5)
+    main("results/uni_neat_800_300_500_8_30_32", [BLUE, RED], 300)

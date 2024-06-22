@@ -10,6 +10,7 @@ import time
 import json
 import os
 import imageio
+import copy
 
 EVOLUTIONARY_ALGORITHMS = ['neat', 'ga', 'cma-es', 'evostick']
 DEAP_ALGORITHMS = ['cma-es', 'ga', 'evostick']
@@ -25,22 +26,27 @@ class EvoSwarmExperiment:
                 controller_deap : neural_controller.NeuralController = None,
                 env : environment.SwarmForagingEnv = None,
                 config_path_neat : str = None,
-                seed : int = 0
+                seed : int = None
                 ):
         
         self.evolutionary_algorithm = evolutionary_algorithm
         self.name = name
         self.population_size = population_size
         self.env = env
+        self.target_color = env.target_color
         self.controller_deap = controller_deap
         self.config_path_neat = config_path_neat
         self.seed = seed
-        
+
         self.experiment_name = None
         self.best_individual = None
         self.time_elapsed = None
         self.toolbox_deap = None
         self.population = None
+        self.prev_target_color = None
+
+        self.n_eval_forgetting = None
+        self.fitness_forgetting = []
     
     def load(self, folder_path):
         # self.experiment_name = folder_path.split("/")[-1]
@@ -67,6 +73,8 @@ class EvoSwarmExperiment:
         self.experiment_name = experiment["name"]
         self.name = experiment["name"].split("_")[0]
         self.time_elapsed = experiment["time"]
+        self.seed = experiment["seed"]
+        # self.prev_target = experiment["target_color"]
         # Other loads
         if self.evolutionary_algorithm == "neat":
             with open(folder_path + '/neat_config.txt', 'r') as f:
@@ -78,11 +86,15 @@ class EvoSwarmExperiment:
                 self.toolbox_deap = pickle.load(f)
         
     def change_objective(self, objective):
+        self.fitness_forgetting = []
+        self.experiment_name = f"{self.experiment_name}_drift{self.target_color}{objective}"
+        self.prev_target_color = self.target_color
+        self.target_color = objective
+        
         self.env.target_color = objective
-        self.experiment_name = f"{self.experiment_name}_drift{objective}"
      
     def _calculate_fitness_neat(self, genomes, config):
-
+        self.env.target_color = self.target_color
         for genome_id, genome in genomes:
             genome.fitness = 0.0
             
@@ -99,6 +111,35 @@ class EvoSwarmExperiment:
                 
                 if done or truncated:
                     break
+        
+        # ----- EVALUATE FORGETTING -----
+        if self.n_eval_forgetting is not None and self.prev_target_color is not None:
+            self.env.target_color = self.prev_target_color
+            # Take top 10 genomes and evaluate them on the previous task
+            top_genomes = [genome for _, genome in genomes]
+            top_genomes.sort(key=lambda x: x.fitness, reverse=True)
+            top_genomes = top_genomes[:self.n_eval_forgetting]
+            
+            for top_genome in top_genomes:
+                top_genome.fitness = 0.0
+                net = neat.nn.FeedForwardNetwork.create(top_genome, config)
+                obs, _ = self.env.reset(seed=self.seed)
+                
+                while True:
+                    nn_inputs = self.env.process_observation(obs)
+                    nn_outputs = np.array([net.activate(nn_input) for nn_input in nn_inputs])
+                    actions = (2 * nn_outputs - 1) * self.env.max_wheel_velocity
+
+                    obs, reward, done, truncated, _ = self.env.step(actions)
+                    top_genome.fitness += reward
+
+                    if done or truncated:
+                        break
+            # Calculate the average fitness of the top genomes
+            avg_fitness = sum([top_genome.fitness for top_genome in top_genomes]) / len(top_genomes)
+            print(f"Forgetting: {avg_fitness}")
+            self.fitness_forgetting.append(avg_fitness)
+        # -------------------------------
     
     def _calculate_fitness_deap(self, individual):
         fitness = 0
@@ -180,7 +221,7 @@ class EvoSwarmExperiment:
         start = time.time()
         # Run the genetic algorithm
         # TODO use standard algorithm
-        self.population, log = algorithms.eaSimple(self.population, self.toolbox_deap, cxpb=0.8, mutpb=0.1,
+        self.population, log = algorithms.eaSimple(self.population, self.toolbox_deap, cxpb=0.8, mutpb=0.01,
                                                     ngen=generations, stats=stats, halloffame=hof, verbose=True)
         # self.population, log = eaSimpleWithElitism(self.population, self.toolbox_deap, cxpb=0.8, mutpb=0.1, 
         #                                            ngen=generations, stats=stats, halloffame=hof, verbose=True)
@@ -283,7 +324,7 @@ class EvoSwarmExperiment:
         frames = []
         done = False
         total_reward = 0
-        obs, _ = self.env.reset()
+        obs, _ = self.env.reset(seed=self.seed)
         frames.append(self.env.render(verbose))
         
         while True:
@@ -336,7 +377,8 @@ class EvoSwarmExperiment:
             "best": bests,
             "avg": avgs,
             "median": medians,
-            "std": stds
+            "std": stds,
+            "forgetting": self.fitness_forgetting
         }
         # Experiment info
         experiment = {
@@ -345,9 +387,10 @@ class EvoSwarmExperiment:
             "generations":len(bests),
             "ep_duration": self.env.duration,
             "population_size": self.population_size,
+            "target_color": self.env.target_color,
             "agents": self.env.n_agents,
             "blocks": self.env.n_blocks,
-            "seed": self.env.seed,
+            "seed": self.seed,
             "best_fitness": total_reward,
             "info": info,
             "retrieved": len(info["retrieved"]),
@@ -380,7 +423,9 @@ class EvoSwarmExperiment:
             with open(f"results/{self.experiment_name}/toolbox.pkl", "wb") as f:
                 pickle.dump(self.toolbox_deap, f)
         
-    def run(self, generations):
+    def run(self, generations, n_eval_forgetting = None):
+        self.n_eval_forgetting = n_eval_forgetting
+        
         if self.name is None:
             raise ValueError("Name is not set. Set the name of the experiment first.")
         if self.env is None:
@@ -391,16 +436,18 @@ class EvoSwarmExperiment:
             raise ValueError("Population size is not set. Set the population size first.")
         
         if self.experiment_name is None:
-            self.experiment_name = f"{self.name}_{self.evolutionary_algorithm}_{self.env.duration}_{generations}_{self.population_size}_{self.env.n_agents}_{self.env.n_blocks}_{self.env.seed}"
+            self.experiment_name = f"{self.name}_{self.evolutionary_algorithm}_{self.env.duration}_{generations}_{self.population_size}_{self.env.n_agents}_{self.env.n_blocks}_{self.seed}"
         os.makedirs(f"results/{self.experiment_name}", exist_ok=True) # Create directory for the experiment results
+
+        print(f"\n{self.experiment_name}")
         print(f"Running {self.evolutionary_algorithm} with with the following parameters:")
         print(f"Name: {self.name}")
-        print(f"Duration of episode: {self.env.duration} in steps (oen step is {environment.TIME_STEP} seconds)")
+        print(f"Duration of episode: {self.env.duration} in steps (one step is {environment.TIME_STEP} seconds)")
         print(f"Number of generations: {generations}")
         print(f"Population size: {self.population_size}")
         print(f"Number of agents: {self.env.n_agents}")
         print(f"Number of blocks: {self.env.n_blocks}")
-        print(f"Seed: {self.env.seed}")
+        print(f"Seed: {self.seed}")
         
         self.env.reset(seed=self.seed)
         self.env.render() # Show the environment

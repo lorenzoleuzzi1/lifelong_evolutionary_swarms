@@ -68,7 +68,7 @@ class SwarmForagingEnv(gym.Env):
             time_step = TIME_STEP, # in seconds
             duration = 500, # max number of steps for an episode
             max_retrieves = 20, # max number of retrives for an episode
-            seed = 0,
+            distribution = "uniform" # blocks colors distribution
             ):
         
         self.nest = UP # The nest location (UP, DOWN, LEFT, RIGHT) TODO: maybe as parameter?
@@ -79,8 +79,6 @@ class SwarmForagingEnv(gym.Env):
         self.n_agents = n_agents
         self.n_blocks = n_blocks
         
-        self.seed = seed
-        np.random.seed(seed=seed)
         self.size = size  # The size of the square grid
         self.time_step = time_step
         
@@ -91,8 +89,8 @@ class SwarmForagingEnv(gym.Env):
         self.blocks_location = np.zeros((self.n_blocks, 2), dtype=float)
         self.blocks_color = np.zeros(self.n_blocks, dtype=int)
         self._blocks_picked_up = np.full(self.n_blocks, -1, dtype=int)
-        self._blocks_initial_distance_to_dropzone = np.full(self.n_blocks, -1, dtype=float)
         self.rate_target_block = rate_target_block
+        self.distribution = distribution
 
         self._distance_matrix_agent_agent = np.zeros((self.n_agents, self.n_blocks), dtype=float)
         self._direction_matrix_agent_agent = np.zeros((self.n_agents, self.n_blocks), dtype=float)
@@ -148,21 +146,21 @@ class SwarmForagingEnv(gym.Env):
                                                     (SIMULATION_ARENA_SIZE - 2, SIMULATION_ARENA_SIZE - 2), 
                                                     2)
     
-    def create_initial_setting(self, distribution="uniform"):
+    def create_initial_setting(self):
         # Blocks
-        if distribution == "uniform":
+        if self.distribution == "uniform":
             blocks_locations = np.zeros((self.n_blocks, 2), dtype=float)
             blocks_colors = np.zeros(self.n_blocks, dtype=int)
             for i in range(self.n_blocks):
                 low = (5, 1)
                 high = (SIMULATION_ARENA_SIZE - 2, SIMULATION_ARENA_SIZE - 2)
-                blocks_colors[i] = (i % 5) + RED # 5 colors
+                blocks_colors[i] = ((i + (self.target_color - RED)) % 5) + RED # 5 colors
                 while True:
                     blocks_locations[i] = np.random.randint(low, high, 2)
                     # Check if the new position is valid (not occupied by another block)
                     if i == 0 or not np.any(np.linalg.norm(blocks_locations[i] - blocks_locations[:i], axis=1) < 1):
                         break
-        else:
+        elif self.distribution == "biased":
             n_target_blocks = int(self.n_blocks * self.rate_target_block)
             n_other_blocks = self.n_blocks - n_target_blocks
     
@@ -176,11 +174,13 @@ class SwarmForagingEnv(gym.Env):
                                                     (n_other_blocks, 2))
             other_blocks_color = []
             for i in range(n_other_blocks):
-                other_blocks_color.append(np.random.randint(3, 7))
+                other_blocks_color.append(np.random.randint(3, 8))
                 while other_blocks_color[i] == self.target_color:
-                    other_blocks_color[i] = np.random.randint(3, 7)
+                    other_blocks_color[i] = np.random.randint(3, 8)
             blocks_locations = np.concatenate((target_blocks_location, other_blocks_location), axis=0)
             blocks_colors = np.concatenate((objective_blocks_color, other_blocks_color), axis=0)
+        else:
+            raise ValueError("Invalid distribution type. Choose between 'uniform' and 'biased'")
         
         # Agents
         agents_locations = np.zeros((self.n_agents, 2), dtype=float)
@@ -278,15 +278,15 @@ class SwarmForagingEnv(gym.Env):
             obs.append({"neighbors" : self._neighbors[i], "heading": self.agents_heading[i], "carrying" : carrying})
         return obs
     
-    def reset(self, seed=None, distribution="uniform"):
-        np.random.seed(seed=seed) # + 1 to avoid the same initial setting
+    def reset(self, seed=None):
+        np.random.seed(seed=seed)
                 
         self._agents_carrying = np.full(self.n_agents, -1, dtype=int)
         self._blocks_picked_up = np.full(self.n_blocks, -1, dtype=int)
         self._neighbors = np.zeros((self.n_agents, self.n_neighbors, 3), dtype=float)
         self._previous_neighbors = np.zeros((self.n_agents, self.n_neighbors, 3), dtype=float)
         
-        initial_setting = self.create_initial_setting(distribution=distribution)
+        initial_setting = self.create_initial_setting()
         self.agents_location = initial_setting['agents'].copy()
         self.agents_heading = initial_setting['headings'].copy()
         self.blocks_location = initial_setting['blocks'].copy()
@@ -308,7 +308,14 @@ class SwarmForagingEnv(gym.Env):
     def step(self, action):
         
         self._rewards = np.zeros(self.n_agents)
-        old_agents_location = self.agents_location.copy()
+        
+        # # Automatic collision avoidance
+        # colliding_agents = np.argwhere(self._distance_matrix_agent_agent < self.sensitivity)
+        # colliding_agents = colliding_agents[colliding_agents[:, 0] < colliding_agents[:, 1]] # Filter out self-collisions and duplicate pairs
+        # colliding_agents = np.unique(colliding_agents.flatten()) # Flatten the array to get a list of unique indices of agents involved in collisions
+        # if colliding_agents.size > 0:
+        #     # Rotate at max speed stayin in place
+        #     action[colliding_agents] = [self.max_wheel_velocity, self.max_wheel_velocity, self.max_wheel_velocity]  # Stop the agents involved in collisions
         
         # --- MOVEMENT ---
         # Move all agents
@@ -327,21 +334,6 @@ class SwarmForagingEnv(gym.Env):
         # Update internal state
         self.agents_location = np.stack((x_new, y_new), axis=-1)
         self.agents_heading = theta_new
-        
-        # Hadle collisions
-        agents_in_same_position = []
-        for i in range(self.n_agents):
-            # Get indexes of agents that are in the same position
-            colliding = np.where(np.linalg.norm(self.agents_location - self.agents_location[i], axis=1) < self.sensitivity)[0]
-            colliding = colliding[colliding != i]
-            if colliding.size > 0:
-                agents_in_same_position.append(i)
-                agents_in_same_position.extend(colliding)
-        if len(agents_in_same_position) > 0:
-            # self._rewards[agents_in_same_position] += REWARD_COLLISION # Penalize collsion
-            agents_in_same_position = list(set(agents_in_same_position))
-            # If the new position is occupied, keep the old position TODO: check it and maybe change it
-            self.agents_location[agents_in_same_position] = old_agents_location[agents_in_same_position]
         # ----------------
         
         self._update_directions_matrix()
@@ -375,8 +367,8 @@ class SwarmForagingEnv(gym.Env):
                     self._retrieved.append((self.current_step, i, int(self.blocks_color[self._agents_carrying[i]]),
                                             int(self._agents_carrying[i])))
                     self._rewards[i] += REWARD_DROP
-                else:
-                    self._rewards[i] -= REWARD_DROP
+                # else:
+                #     self._rewards[i] -= REWARD_DROP
                     
                 # Reset block and place it back in the arena
                 self._reposition_block(self._agents_carrying[i]) 
@@ -491,6 +483,9 @@ class SwarmForagingEnv(gym.Env):
         carrying[carrying == -1] = 0 # Change -1 to 0
         carrying[carrying > 0] = carrying[carrying > 0] - 2 # Change 3, 4, 5, ... to 1, 2, 3, ...
         carrying_one_hot = np.eye(self.n_types - 2)[carrying]
+        # One hot encode for task label
+        task_one_hot = np.eye(len(self._colors_map))[self.target_color - 3] # 3 is the first color (RED)
+        task_one_hot = np.repeat(task_one_hot[np.newaxis, :], self.n_agents, axis=0) # Repeat the task label for all agents
 
         # Flatten all features and concatenate them into a single vector per agent
         flat_features = np.concatenate([
@@ -500,7 +495,8 @@ class SwarmForagingEnv(gym.Env):
             directions_cos.reshape(directions_cos.shape[0], -1),  # Flatten directions
             heading_sin.reshape(heading_sin.shape[0], -1),  # Flatten heading
             heading_cos.reshape(heading_cos.shape[0], -1),  # Flatten heading
-            carrying_one_hot  # Already appropriate shape
+            carrying_one_hot,  # Already appropriate shape
+            task_one_hot
         ], axis=1) # TODO: is the order important?
 
         return flat_features
