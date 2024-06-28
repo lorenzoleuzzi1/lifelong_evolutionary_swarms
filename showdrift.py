@@ -5,28 +5,37 @@ import numpy as np
 import os
 import argparse
 from deap import base
-# TODO: make it better
+
 def load_logbook_json(logbook_path):
     with open(logbook_path, "r") as f:
         logbook = json.load(f)
     return logbook
 
-def plot_drift(path1, path2):
-    log1 = load_logbook_json(path1)
-    log2 = load_logbook_json(path2)
-    len1 = len(log1["best"])
-    len2 = len(log2["best"])
-
-    best = log1["best"] + log2["best"]
+def plot_drift(paths):
+    
+    logs = [load_logbook_json(path) for path in paths]
+    bests = [log["best"] for log in logs]
+    forgetting = [log["forgetting"] for log in logs[1:]]
+    gen_drifts = [0]
+    for i in range(1, len(bests)):
+        gen_drifts.append(len(bests[i-1]) + gen_drifts[i-1])
+    bests = np.array(bests).flatten()
+    print(f"Average Anytime Fitness: {np.mean(bests)}")
+    forgetting = np.array(forgetting).flatten()
     # Plot best
-    plt.plot(range(len1 + len2), best, label="Best")
-    # vertical line in len1
-    plt.axvline(x=len1, color='g', linestyle='--')
+    plt.plot(range(len(bests)), bests, label="Best")
+    # Plot forgetting
+    plt.plot(range(gen_drifts[1], gen_drifts[1]+ len(forgetting)), forgetting, label="Retaining", color='r', alpha=0.4)
+    for i, l in enumerate(gen_drifts[1:]):
+        if i == 0:
+            plt.axvline(x=l, color='g', linestyle='--', label="Drift")
+        else:
+            plt.axvline(x=l, color='g', linestyle='--')
     plt.legend()
     plt.title("Drift")
     plt.xlabel("Generations")
     plt.ylabel("Fitness")
-    plt.savefig("drift.png")
+    plt.savefig("drift-okb.png")
     plt.show()
 
 if __name__ == "__main__":
@@ -39,4 +48,7 @@ if __name__ == "__main__":
     # if not os.path.exists(args.experiment2):
     #     raise ValueError(f"Experiment {args.experiment2} does not exist.")
     # plot_drift(args.experiment1, args.experiment2)
-    plot_drift("results/d_neat_500_50_500_8_20_99/logbook.json", "results/d_neat_500_50_500_8_20_99_drift5/logbook.json")
+    plot_drift(["results/driftcheckb_neat_800_100_300_5_30_69/logbook.json",
+                "results/driftcheckb_neat_800_100_300_5_30_69_drift34/logbook.json",
+                "results/driftcheckb_neat_800_100_300_5_30_69_drift34_drift43/logbook.json"]
+                )

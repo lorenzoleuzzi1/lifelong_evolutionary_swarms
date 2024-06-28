@@ -33,7 +33,6 @@ class EvoSwarmExperiment:
         self.name = name
         self.population_size = population_size
         self.env = env
-        self.target_color = env.target_color
         self.controller_deap = controller_deap
         self.config_path_neat = config_path_neat
         self.seed = seed
@@ -43,6 +42,10 @@ class EvoSwarmExperiment:
         self.time_elapsed = None
         self.toolbox_deap = None
         self.population = None
+        if env is not None:
+            self.target_color = env.target_color
+        else:
+            self.target_color = None
         self.prev_target_color = None
 
         self.n_eval_forgetting = None
@@ -74,6 +77,7 @@ class EvoSwarmExperiment:
         self.name = experiment["name"].split("_")[0]
         self.time_elapsed = experiment["time"]
         self.seed = experiment["seed"]
+        self.target_color = experiment["target_color"]
         # self.prev_target = experiment["target_color"]
         # Other loads
         if self.evolutionary_algorithm == "neat":
@@ -111,16 +115,16 @@ class EvoSwarmExperiment:
                 
                 if done or truncated:
                     break
-        
+
         # ----- EVALUATE FORGETTING -----
         if self.n_eval_forgetting is not None and self.prev_target_color is not None:
             self.env.target_color = self.prev_target_color
             # Take top 10 genomes and evaluate them on the previous task
-            top_genomes = [genome for _, genome in genomes]
-            top_genomes.sort(key=lambda x: x.fitness, reverse=True)
+            top_genomes = copy.deepcopy(genomes)
+            top_genomes.sort(key=lambda x: x[1].fitness, reverse=True)
             top_genomes = top_genomes[:self.n_eval_forgetting]
             
-            for top_genome in top_genomes:
+            for _, top_genome in top_genomes:
                 top_genome.fitness = 0.0
                 net = neat.nn.FeedForwardNetwork.create(top_genome, config)
                 obs, _ = self.env.reset(seed=self.seed)
@@ -136,7 +140,7 @@ class EvoSwarmExperiment:
                     if done or truncated:
                         break
             # Calculate the average fitness of the top genomes
-            avg_fitness = sum([top_genome.fitness for top_genome in top_genomes]) / len(top_genomes)
+            avg_fitness = sum([top_genome.fitness for _, top_genome in top_genomes]) / len(top_genomes)
             print(f"Forgetting: {avg_fitness}")
             self.fitness_forgetting.append(avg_fitness)
         # -------------------------------
@@ -324,6 +328,7 @@ class EvoSwarmExperiment:
         frames = []
         done = False
         total_reward = 0
+        self.env.target_color = self.target_color
         obs, _ = self.env.reset(seed=self.seed)
         frames.append(self.env.render(verbose))
         
@@ -387,7 +392,7 @@ class EvoSwarmExperiment:
             "generations":len(bests),
             "ep_duration": self.env.duration,
             "population_size": self.population_size,
-            "target_color": self.env.target_color,
+            "target_color": self.target_color,
             "agents": self.env.n_agents,
             "blocks": self.env.n_blocks,
             "seed": self.seed,
@@ -434,7 +439,6 @@ class EvoSwarmExperiment:
             raise ValueError("Evolutionary algorithm is not set. Set the evolutionary algorithm first.")
         if self.population_size is None:
             raise ValueError("Population size is not set. Set the population size first.")
-        
         if self.experiment_name is None:
             self.experiment_name = f"{self.name}_{self.evolutionary_algorithm}_{self.env.duration}_{generations}_{self.population_size}_{self.env.n_agents}_{self.env.n_blocks}_{self.seed}"
         os.makedirs(f"results/{self.experiment_name}", exist_ok=True) # Create directory for the experiment results

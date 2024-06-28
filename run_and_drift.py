@@ -14,7 +14,8 @@ def main(name,
         seed, 
         drifts):
     
-    env = SwarmForagingEnv(n_agents = n_agents, n_blocks = n_blocks, duration=steps, distribution=distribution)
+    env = SwarmForagingEnv(n_agents = n_agents, n_blocks = n_blocks, target_color=drifts[0],
+                           duration=steps, distribution=distribution)
     
     controller_deap = None
     config_path_neat = None
@@ -26,14 +27,14 @@ def main(name,
         hidden_units = [64]
         layer_sizes = [input_dim] + hidden_units + [output_dim]
         controller_deap = NeuralController(layer_sizes, hidden_activation="neat_sigmoid", output_activation="neat_sigmoid")
-
+    
     experiment = EvoSwarmExperiment(env = env, name = name, evolutionary_algorithm=script, population_size=population_size, 
                                     controller_deap=controller_deap, config_path_neat=config_path_neat, seed = seed)
     experiment.run(generations)
     
-    for drift in drifts:
+    for drift in drifts[1:]:
         experiment.change_objective(drift)
-        experiment.run(generations, n_eval_forgetting=5)
+        experiment.run(generations, n_eval_forgetting=10)
         
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Evolutionary swarm parameters.')
@@ -65,7 +66,7 @@ if __name__ == "__main__":
     if args.seed < 0:
         raise ValueError("Seed must be greater than or equal to 0")
     
-    drifts = [BLUE, RED]
+    drifts = [RED, BLUE, RED]
     
     main(args.name, 
         args.evo, 
