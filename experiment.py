@@ -15,8 +15,7 @@ import copy
 EVOLUTIONARY_ALGORITHMS = ['neat', 'ga', 'cma-es', 'evostick']
 DEAP_ALGORITHMS = ['cma-es', 'ga', 'evostick']
 
-# TODO: finish it and check if it is correct
-# TODO put together results and plot them
+# TODO: dont save all the info for deap, just neat handles drifts
 class EvoSwarmExperiment:
 
     def __init__(self,
@@ -26,6 +25,7 @@ class EvoSwarmExperiment:
                 controller_deap : neural_controller.NeuralController = None,
                 env : environment.SwarmForagingEnv = None,
                 config_path_neat : str = None,
+                regularization_lambdas : list = [0.005, 0.5, 0.01], # weight, innovation, distance
                 seed : int = None
                 ):
         
@@ -35,7 +35,9 @@ class EvoSwarmExperiment:
         self.env = env
         self.controller_deap = controller_deap
         self.config_path_neat = config_path_neat
+        self.regularization_lambdas = regularization_lambdas
         self.seed = seed
+        
 
         self.experiment_name = None
         self.best_individual = None
@@ -48,8 +50,10 @@ class EvoSwarmExperiment:
             self.target_color = None
         self.prev_target_color = None
 
-        self.n_eval_forgetting = None
-        self.fitness_forgetting = []
+        # they are set when calling run method TODO: maybe init??
+        self.eval_retaining = None
+        self.regularization_retaining = None
+        self.fitness_retaining = []
     
     def load(self, folder_path):
         # self.experiment_name = folder_path.split("/")[-1]
@@ -90,7 +94,7 @@ class EvoSwarmExperiment:
                 self.toolbox_deap = pickle.load(f)
         
     def change_objective(self, objective):
-        self.fitness_forgetting = []
+        self.fitness_retaining = []
         self.experiment_name = f"{self.experiment_name}_drift{self.target_color}{objective}"
         self.prev_target_color = self.target_color
         self.target_color = objective
@@ -112,19 +116,61 @@ class EvoSwarmExperiment:
 
                 obs, reward, done, truncated, _ = self.env.step(actions)
                 genome.fitness += reward
-                
+
                 if done or truncated:
                     break
-
-        # ----- EVALUATE FORGETTING -----
-        if self.n_eval_forgetting is not None and self.prev_target_color is not None:
-            self.env.target_color = self.prev_target_color
-            # Take top 10 genomes and evaluate them on the previous task
-            top_genomes = copy.deepcopy(genomes)
-            top_genomes.sort(key=lambda x: x[1].fitness, reverse=True)
-            top_genomes = top_genomes[:self.n_eval_forgetting]
             
-            for _, top_genome in top_genomes:
+            # ----- REGULARIZATION -----
+            if self.regularization_retaining is not None and self.best_individual is not None:
+                penalty_weight = 0.0
+                if  "weight" in self.regularization_retaining:
+                    # Regularize with the weights
+                    for c in genome.connections:
+                        if c in self.best_individual.connections:
+                            penalty_weight += (self.best_individual.connections[c].weight - genome.connections[c].weight) **2
+                
+                penalty_innovation = 0.0
+                if "innovation" in self.regularization_retaining:
+                    # Compare connections
+                    genome1_conn_innovations = set(gene.key for gene in self.best_individual.connections.values())
+                    genome2_conn_innovations = set(gene.key for gene in genome.connections.values())
+                    conn_diff = len(genome1_conn_innovations.symmetric_difference(genome2_conn_innovations))
+                    penalty_innovation += conn_diff
+                    # Compare nodes
+                    genome1_node_innovations = set(gene.key for gene in self.best_individual.nodes.values())
+                    genome2_node_innovations = set(gene.key for gene in genome.nodes.values())
+                    node_diff = len(genome1_node_innovations.symmetric_difference(genome2_node_innovations))
+                    penalty_innovation += node_diff
+                    # raise NotImplementedError("Regularization with innovation is not implemented yet.")
+                
+                penalty_distance = 0.0
+                if "distance" in self.regularization_retaining:
+                    config.compatibility_weight_coefficient = 0.6
+                    config.compatibility_disjoint_coefficient = 1.0
+                    penalty_distance += self.best_individual.distance(genome, config)
+                    # raise NotImplementedError("Regularization with both weights and innovation is not implemented yet.")
+                
+                genome.fitness -= (self.regularization_lambdas[0] * penalty_weight +  \
+                                    self.regularization_lambdas[1] * penalty_innovation + \
+                                    self.regularization_lambdas[2] * penalty_distance)
+            # ---------------------------
+        
+        # ----- EVALUATE FORGETTING -----
+        if self.eval_retaining is not None and self.prev_target_color is not None:
+            # Evaluate genomes on the previous task
+            self.env.target_color = self.prev_target_color
+            eval_genomes = copy.deepcopy(genomes)
+            
+            if self.eval_retaining == "top":
+                # Take top 5% genomes 
+                eval_genomes.sort(key=lambda x: x[1].fitness, reverse=True)
+                eval_genomes = eval_genomes[:int(len(eval_genomes) * 0.05)]
+            if self.eval_retaining == "random":
+                # Random choose eval genomes 10% of the population
+                eval_genomes = random.sample(eval_genomes, int(len(eval_genomes) * 0.1))         
+            
+            # if find best use the whole population
+            for _, top_genome in eval_genomes:
                 top_genome.fitness = 0.0
                 net = neat.nn.FeedForwardNetwork.create(top_genome, config)
                 obs, _ = self.env.reset(seed=self.seed)
@@ -139,10 +185,16 @@ class EvoSwarmExperiment:
 
                     if done or truncated:
                         break
-            # Calculate the average fitness of the top genomes
-            avg_fitness = sum([top_genome.fitness for _, top_genome in top_genomes]) / len(top_genomes)
-            print(f"Forgetting: {avg_fitness}")
-            self.fitness_forgetting.append(avg_fitness)
+            
+            if self.eval_retaining == "find_best":
+                # Find the best genome on the previous task
+                eval_genomes.sort(key=lambda x: x[1].fitness, reverse=True)
+                retaining = eval_genomes[0][1].fitness
+            else:
+                # Calculate the average fitness of the eval retaining genomes
+                retaining = sum([top_genome.fitness for _, top_genome in eval_genomes]) / len(eval_genomes)
+            print(f"Retaining: {retaining}")
+            self.fitness_retaining.append(retaining)
         # -------------------------------
     
     def _calculate_fitness_deap(self, individual):
@@ -383,7 +435,8 @@ class EvoSwarmExperiment:
             "avg": avgs,
             "median": medians,
             "std": stds,
-            "forgetting": self.fitness_forgetting
+            "retaining": self.fitness_retaining,
+            "type_of_retaining": self.eval_retaining,
         }
         # Experiment info
         experiment = {
@@ -395,10 +448,12 @@ class EvoSwarmExperiment:
             "target_color": self.target_color,
             "agents": self.env.n_agents,
             "blocks": self.env.n_blocks,
+            "distribution": self.env.distribution,
             "seed": self.seed,
             "best_fitness": total_reward,
             "info": info,
-            "retrieved": len(info["retrieved"]),
+            "correct_retrieves": len(info["correct_retrieves"]),
+            "wrong_retrieves": len(info["wrong_retrieves"]),
             "time": self.time_elapsed
         }
         # Save the logbook as json
@@ -427,9 +482,9 @@ class EvoSwarmExperiment:
             # Save the toolbox
             with open(f"results/{self.experiment_name}/toolbox.pkl", "wb") as f:
                 pickle.dump(self.toolbox_deap, f)
-        
-    def run(self, generations, n_eval_forgetting = None):
-        self.n_eval_forgetting = n_eval_forgetting
+    
+    # TODO: change name of parameters
+    def run(self, generations, eval_retaining = None, regularization_retaining = None):
         
         if self.name is None:
             raise ValueError("Name is not set. Set the name of the experiment first.")
@@ -440,9 +495,19 @@ class EvoSwarmExperiment:
         if self.population_size is None:
             raise ValueError("Population size is not set. Set the population size first.")
         if self.experiment_name is None:
-            self.experiment_name = f"{self.name}_{self.evolutionary_algorithm}_{self.env.duration}_{generations}_{self.population_size}_{self.env.n_agents}_{self.env.n_blocks}_{self.seed}"
+            distribution_str = "u" if self.env.distribution == "uniform" else "b"
+            self.experiment_name = f"{self.name}_{self.evolutionary_algorithm}_{self.env.duration}_{generations}_{self.population_size}_{self.env.n_agents}_{self.env.n_blocks}_{distribution_str}_{self.seed}"
         os.makedirs(f"results/{self.experiment_name}", exist_ok=True) # Create directory for the experiment results
-
+        self.eval_retaining = eval_retaining
+        if eval_retaining is not None:
+            if eval_retaining not in ["random", "top", "find_best"]:
+                raise ValueError("Evaluation of retaining must be one of: random, top, find_best")
+        self.regularization_retaining = regularization_retaining
+        if regularization_retaining is not None:
+            for r in regularization_retaining:
+                if r not in ["weight", "innovation", "distance"]:
+                    raise ValueError("Regularization of retaining must be one of: weight, innovation, distance")
+          
         print(f"\n{self.experiment_name}")
         print(f"Running {self.evolutionary_algorithm} with with the following parameters:")
         print(f"Name: {self.name}")

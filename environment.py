@@ -74,7 +74,8 @@ class SwarmForagingEnv(gym.Env):
         self.nest = UP # The nest location (UP, DOWN, LEFT, RIGHT) TODO: maybe as parameter?
         self.drop_zone = UP # The drop zone location (UP, DOWN, LEFT, RIGHT) TODO: maybe as parameter?
         self.target_color = target_color  # The objective block TODO: the drop zone is always the same?
-        self._retrieved = []
+        self._correct_retrieves = []
+        self._wrong_retrieves = []
         
         self.n_agents = n_agents
         self.n_blocks = n_blocks
@@ -108,7 +109,8 @@ class SwarmForagingEnv(gym.Env):
         self._rewards = np.zeros(self.n_agents, dtype=int)
 
         self.duration = duration
-        self._retrieved = []
+        self._correct_retrieves = []
+        self._wrong_retrieves = []
         self.max_retrieves = max_retrieves
         self.current_step = 0
         
@@ -269,7 +271,7 @@ class SwarmForagingEnv(gym.Env):
             self._neighbors[i] = neighbors[:self.n_neighbors] # Take only first n_neighbors
     
     def _get_info(self):
-        return {"retrieved": self._retrieved} # TODO: potentially add more info
+        return {"correct_retrieves": self._correct_retrieves, "wrong_retrieves": self._wrong_retrieves} # TODO: potentially add more info
     
     def _get_obs(self):
         obs = []
@@ -295,7 +297,8 @@ class SwarmForagingEnv(gym.Env):
         self.current_step = 0
         
         self._rewards = np.zeros(self.n_agents)
-        self._retrieved = []
+        self._correct_retrieves = []
+        self._wrong_retrieves = []
         info = {}
         self._update_directions_matrix()
         self._update_distance_matrix()
@@ -364,11 +367,13 @@ class SwarmForagingEnv(gym.Env):
             # Check if the agent is dropping a block
             if self._agents_carrying[i] != -1 and self.agents_location[i][0] < 1: # If the agent is in the drop zone while carrying a block
                 if self.blocks_color[self._agents_carrying[i]] == self.target_color:
-                    self._retrieved.append((self.current_step, i, int(self.blocks_color[self._agents_carrying[i]]),
+                    # current step, block index, block color, block index
+                    self._correct_retrieves.append((self.current_step, i, int(self.blocks_color[self._agents_carrying[i]]),
                                             int(self._agents_carrying[i])))
                     self._rewards[i] += REWARD_DROP
-                # else:
-                #     self._rewards[i] -= REWARD_DROP
+                else:
+                    self._wrong_retrieves.append((self.current_step, i, int(self.blocks_color[self._agents_carrying[i]]),
+                                            int(self._agents_carrying[i])))
                     
                 # Reset block and place it back in the arena
                 self._reposition_block(self._agents_carrying[i]) 
@@ -383,7 +388,7 @@ class SwarmForagingEnv(gym.Env):
         
         # Check termination
         done = False
-        if len(self._retrieved) >= self.max_retrieves:
+        if len(self._correct_retrieves) >= self.max_retrieves:
             print("Max retrieves reached") 
             done = True
         truncated = False

@@ -1,5 +1,5 @@
 from experiment import EvoSwarmExperiment, EVOLUTIONARY_ALGORITHMS
-from environment import SwarmForagingEnv
+from environment import SwarmForagingEnv, BLUE, RED
 from neural_controller import NeuralController
 import argparse
 
@@ -10,9 +10,10 @@ def main(name,
         population_size,
         n_agents, 
         n_blocks,
+        distribution,
         seed):
-    
-    env = SwarmForagingEnv(n_agents = n_agents, n_blocks = n_blocks, duration=steps)
+    object_color = RED
+    env = SwarmForagingEnv(n_agents = n_agents, n_blocks = n_blocks, duration=steps, target_color=object_color, distribution=distribution)
     
     controller_deap = None
     config_path_neat = None
@@ -39,7 +40,7 @@ if __name__ == "__main__":
     parser.add_argument('--population_size', type=int, default=300,help='The size of the population for the evolutionary algorithm.')
     parser.add_argument('--agents', type=int, default=5,help='The number of agents in the arena.')
     parser.add_argument('--blocks', type=int, default=20,help='The number of blocks in the arena.')
-    parser.add_argument('--distribution', type=str, default=0,help='The distribution of the blocks in the arena. Must be one of: uniform or biased.')
+    parser.add_argument('--distribution', type=str, default="uniform",help='The distribution of the blocks in the arena. Must be one of: uniform or biased.')
     parser.add_argument('--seed', type=int, default=0,help='The seed for the random number generator.')
     args = parser.parse_args()
     

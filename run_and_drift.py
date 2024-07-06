@@ -34,7 +34,7 @@ def main(name,
     
     for drift in drifts[1:]:
         experiment.change_objective(drift)
-        experiment.run(generations, n_eval_forgetting=10)
+        experiment.run(generations, eval_retaining = "top", regularization_retaining = ["weight", "innovation", "distance"])
         
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Evolutionary swarm parameters.')
