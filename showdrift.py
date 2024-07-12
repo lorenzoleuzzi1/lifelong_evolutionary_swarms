@@ -57,6 +57,7 @@ def plot_drift(paths, name):
             log = load_logbook_json(paths[i][j])
             log_drift.append(log)
         bests = [log["best"] for log in log_drift]
+        type_of_retaining = log_drift[0]["type_of_retaining"]
         avg_bests = np.mean(bests, axis=0)
         current_gen = counter_gens
         counter_gens += len(avg_bests)
@@ -75,7 +76,7 @@ def plot_drift(paths, name):
             forgetting = [log["retaining"] for log in log_drift[1:]]
             avg_forgetting = np.mean(forgetting, axis=0)
             if i == 1:
-                plt.plot(range(current_gen, counter_gens), avg_forgetting, label="Avg Retaining (Top)", color='r')
+                plt.plot(range(current_gen, counter_gens), avg_forgetting, label=f"Avg Retaining ({type_of_retaining})", color='r')
                 plt.axvline(x=current_gen, color='g', linestyle='--', label="Drift")
             else:
                 plt.plot(range(current_gen, counter_gens), avg_forgetting, color='r')
@@ -102,22 +103,22 @@ if __name__ == "__main__":
     #             ,
     #             "bbbb")
     
-    plot_drift([["results/driftlfind_neat_800_200_300_5_30_u_1",
-                "results/driftlfind_neat_800_200_300_5_30_u_2",
-                "results/driftlfind_neat_800_200_300_5_30_u_3",
-                "results/driftlfind_neat_800_200_300_5_30_u_4",
-                "results/driftlfind_neat_800_200_300_5_30_u_5"]
+    plot_drift([["results/fullreg_neat_800_100_300_5_30_u_1",
+                "results/fullreg_neat_800_100_300_5_30_u_2",
+                "results/fullreg_neat_800_100_300_5_30_u_3",
+                "results/fullreg_neat_800_100_300_5_30_u_4",
+                "results/fullreg_neat_800_100_300_5_30_u_5"]
                 ,
-                ["results/driftlfind_neat_800_200_300_5_30_u_1_drift34",
-                "results/driftlfind_neat_800_200_300_5_30_u_2_drift34",
-                "results/driftlfind_neat_800_200_300_5_30_u_3_drift34",
-                "results/driftlfind_neat_800_200_300_5_30_u_4_drift34",
-                "results/driftlfind_neat_800_200_300_5_30_u_5_drift34"]
+                ["results/fullreg_neat_800_100_300_5_30_u_1_drift34",
+                "results/fullreg_neat_800_100_300_5_30_u_2_drift34",
+                "results/fullreg_neat_800_100_300_5_30_u_3_drift34",
+                "results/fullreg_neat_800_100_300_5_30_u_4_drift34",
+                "results/fullreg_neat_800_100_300_5_30_u_5_drift34"]
                 ,
-                ["results/driftlfind_neat_800_200_300_5_30_u_1_drift34_drift43",
-                "results/driftlfind_neat_800_200_300_5_30_u_2_drift34_drift43",
-                "results/driftlfind_neat_800_200_300_5_30_u_3_drift34_drift43",
-                "results/driftlfind_neat_800_200_300_5_30_u_4_drift34_drift43",
-                "results/driftlfind_neat_800_200_300_5_30_u_5_drift34_drift43"]],
-                "longeru")
+                ["results/fullreg_neat_800_100_300_5_30_u_1_drift34_drift43",
+                "results/fullreg_neat_800_100_300_5_30_u_2_drift34_drift43",
+                "results/fullreg_neat_800_100_300_5_30_u_3_drift34_drift43",
+                "results/fullreg_neat_800_100_300_5_30_u_4_drift34_drift43",
+                "results/fullreg_neat_800_100_300_5_30_u_5_drift34_drift43"]],
+                "fullreg-u")
                 

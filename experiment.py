@@ -25,7 +25,7 @@ class EvoSwarmExperiment:
                 controller_deap : neural_controller.NeuralController = None,
                 env : environment.SwarmForagingEnv = None,
                 config_path_neat : str = None,
-                regularization_lambdas : list = [0.005, 0.5, 0.01], # weight, innovation, distance
+                regularization_lambdas : list = [0.01, 0.01, 0.5], # weight, innovation, distance
                 seed : int = None
                 ):
         
@@ -82,6 +82,7 @@ class EvoSwarmExperiment:
         self.time_elapsed = experiment["time"]
         self.seed = experiment["seed"]
         self.target_color = experiment["target_color"]
+        self.prev_target_color = experiment["prev_target_color"]
         # self.prev_target = experiment["target_color"]
         # Other loads
         if self.evolutionary_algorithm == "neat":
@@ -162,37 +163,37 @@ class EvoSwarmExperiment:
             eval_genomes = copy.deepcopy(genomes)
             
             if self.eval_retaining == "top":
-                # Take top 5% genomes 
+                # Take top 3% genomes 
                 eval_genomes.sort(key=lambda x: x[1].fitness, reverse=True)
-                eval_genomes = eval_genomes[:int(len(eval_genomes) * 0.05)]
+                eval_genomes = eval_genomes[:int(len(eval_genomes) * 0.03)]
             if self.eval_retaining == "random":
                 # Random choose eval genomes 10% of the population
                 eval_genomes = random.sample(eval_genomes, int(len(eval_genomes) * 0.1))         
             
-            # if find best use the whole population
-            for _, top_genome in eval_genomes:
-                top_genome.fitness = 0.0
-                net = neat.nn.FeedForwardNetwork.create(top_genome, config)
-                obs, _ = self.env.reset(seed=self.seed)
-                
-                while True:
-                    nn_inputs = self.env.process_observation(obs)
-                    nn_outputs = np.array([net.activate(nn_input) for nn_input in nn_inputs])
-                    actions = (2 * nn_outputs - 1) * self.env.max_wheel_velocity
-
-                    obs, reward, done, truncated, _ = self.env.step(actions)
-                    top_genome.fitness += reward
-
-                    if done or truncated:
-                        break
-            
             if self.eval_retaining == "find_best":
                 # Find the best genome on the previous task
+                for _, genome in eval_genomes:
+                    genome.fitness = 0.0
+                    net = neat.nn.FeedForwardNetwork.create(genome, config)
+                    obs, _ = self.env.reset(seed=self.seed)
+                    
+                    while True:
+                        nn_inputs = self.env.process_observation(obs)
+                        nn_outputs = np.array([net.activate(nn_input) for nn_input in nn_inputs])
+                        actions = (2 * nn_outputs - 1) * self.env.max_wheel_velocity
+
+                        obs, reward, done, truncated, _ = self.env.step(actions)
+                        genome.fitness += reward
+
+                        if done or truncated:
+                            break
+                
+            if self.eval_retaining == "find_best":
                 eval_genomes.sort(key=lambda x: x[1].fitness, reverse=True)
                 retaining = eval_genomes[0][1].fitness
             else:
                 # Calculate the average fitness of the eval retaining genomes
-                retaining = sum([top_genome.fitness for _, top_genome in eval_genomes]) / len(eval_genomes)
+                retaining = sum([genome.fitness for _, genome in eval_genomes]) / len(eval_genomes)
             print(f"Retaining: {retaining}")
             self.fitness_retaining.append(retaining)
         # -------------------------------
@@ -357,11 +358,18 @@ class EvoSwarmExperiment:
         self.time_elapsed = end - start
         self.log = log
 
-    def run_best(self, save = True, verbose = False):
+    def run_best(self, on_prev_env = None, save = True, verbose = False):
+        # TODO: make it prettier
         if self.best_individual is None:
             raise ValueError("Best individual is not set. Set it or tun the evolutionary algorithm first.")
         if self.env is None:
             raise ValueError("Environment is not set. Set the environment first.")
+        if on_prev_env is not None and self.prev_target_color is None:
+            raise ValueError("Previous target color is not set. Set it first.")
+        if on_prev_env is not None and self.population is None:
+            raise ValueError("Population is not set. Set it first.")
+        if on_prev_env is not None and on_prev_env not in ["random", "top", "find_best"]:
+            raise ValueError("On previous environment must be one of: random, top, find_best")
         
         # Set up the neural network controller
         if self.evolutionary_algorithm == 'neat':
@@ -371,19 +379,55 @@ class EvoSwarmExperiment:
                                         neat.DefaultSpeciesSet, neat.DefaultStagnation, self.config_path_neat)
             
             config.genome_config.add_activation('neat_sigmoid', neat_sigmoid)
-            controller_neat = neat.nn.FeedForwardNetwork.create(self.best_individual, config)
+            # controller_neat = neat.nn.FeedForwardNetwork.create(self.best_individual, config)
         elif self.evolutionary_algorithm in DEAP_ALGORITHMS:
             if self.controller_deap is None:
                 raise ValueError("DEAP controller is not set. Set the controller first.")
-            self.controller_deap.set_weights_from_vector(self.best_individual)
+            # self.controller_deap.set_weights_from_vector(self.best_individual)
         
+        genome_run = self.best_individual
+        self.env.target_color = self.target_color
+
+        if on_prev_env is not None:
+            self.env.target_color = self.prev_target_color
+            # Evaluate genomes on the previous task
+            genomes = copy.deepcopy(self.population)
+            
+            if self.eval_retaining == "random":
+                genome_run = random.sample(genomes, 1)      
+            
+            if self.eval_retaining == "find_best":
+                
+                # Find the best genome on the previous task
+                for _, genome in genomes:
+                    genome.fitness = 0.0
+                    net = neat.nn.FeedForwardNetwork.create(genome, config)
+                    obs, _ = self.env.reset(seed=self.seed)
+                    
+                    while True:
+                        nn_inputs = self.env.process_observation(obs)
+                        nn_outputs = np.array([net.activate(nn_input) for nn_input in nn_inputs])
+                        actions = (2 * nn_outputs - 1) * self.env.max_wheel_velocity
+
+                        obs, reward, done, truncated, _ = self.env.step(actions)
+                        genome.fitness += reward
+
+                        if done or truncated:
+                            break
+                
+                genomes.sort(key=lambda x: x[1].fitness, reverse=True)
+                genome_run = genomes[0][1]
+        
+        if self.evolutionary_algorithm == 'neat':
+            controller_neat = neat.nn.FeedForwardNetwork.create(genome_run, config)
+        elif self.evolutionary_algorithm in DEAP_ALGORITHMS:
+            self.controller_deap.set_weights_from_vector(genome_run)
+
         frames = []
         done = False
         total_reward = 0
-        self.env.target_color = self.target_color
         obs, _ = self.env.reset(seed=self.seed)
         frames.append(self.env.render(verbose))
-        
         while True:
             inputs = self.env.process_observation(obs)
             
@@ -402,7 +446,10 @@ class EvoSwarmExperiment:
                 break
         
         if save:
-            imageio.mimsave(f"results/{self.experiment_name}/episode.gif", frames, fps = 60)
+            if on_prev_env is not None:
+                imageio.mimsave(f"results/{self.experiment_name}/episode_{on_prev_env}.gif", frames, fps = 60)
+            else:
+                imageio.mimsave(f"results/{self.experiment_name}/episode.gif", frames, fps = 60)
         
         return total_reward, info
     
@@ -446,6 +493,7 @@ class EvoSwarmExperiment:
             "ep_duration": self.env.duration,
             "population_size": self.population_size,
             "target_color": self.target_color,
+            "prev_target_color": self.prev_target_color,
             "agents": self.env.n_agents,
             "blocks": self.env.n_blocks,
             "distribution": self.env.distribution,

@@ -24,7 +24,7 @@ def main(name,
     else:
         input_dim = (env.n_types + 2 + 1) * env.n_neighbors + 2 + env.n_types - 2
         output_dim = 3
-        hidden_units = [64]
+        hidden_units = [4]
         layer_sizes = [input_dim] + hidden_units + [output_dim]
         controller_deap = NeuralController(layer_sizes, hidden_activation="neat_sigmoid", output_activation="neat_sigmoid")
     
