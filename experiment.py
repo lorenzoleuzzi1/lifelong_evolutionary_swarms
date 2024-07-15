@@ -11,11 +11,16 @@ import json
 import os
 import imageio
 import copy
+import multiprocessing
+from multiprocessing import Pool
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from environment import SwarmForagingEnv
 
 EVOLUTIONARY_ALGORITHMS = ['neat', 'ga', 'cma-es', 'evostick']
 DEAP_ALGORITHMS = ['cma-es', 'ga', 'evostick']
 
 # TODO: dont save all the info for deap, just neat handles drifts
+# TODO: create two separate classes and use checkpoints
 class EvoSwarmExperiment:
 
     def __init__(self,
@@ -23,7 +28,7 @@ class EvoSwarmExperiment:
                 name : str = None,
                 population_size : int = None,
                 controller_deap : neural_controller.NeuralController = None,
-                env : environment.SwarmForagingEnv = None,
+                env : environment.SwarmForagingEnv = None, # TODO: dont pass env but params to create it
                 config_path_neat : str = None,
                 regularization_lambdas : list = [0.01, 0.01, 0.5], # weight, innovation, distance
                 seed : int = None
@@ -51,9 +56,11 @@ class EvoSwarmExperiment:
         self.prev_target_color = None
 
         # they are set when calling run method TODO: maybe init??
+        self.n_workers = False
         self.eval_retaining = None
         self.regularization_retaining = None
         self.fitness_retaining = []
+        self.fitness_no_penalty = []
     
     def load(self, folder_path):
         # self.experiment_name = folder_path.split("/")[-1]
@@ -96,106 +103,155 @@ class EvoSwarmExperiment:
         
     def change_objective(self, objective):
         self.fitness_retaining = []
+        self.fitness_no_penalty = []
         self.experiment_name = f"{self.experiment_name}_drift{self.target_color}{objective}"
         self.prev_target_color = self.target_color
         self.target_color = objective
         
         self.env.target_color = objective
      
-    def _calculate_fitness_neat(self, genomes, config):
-        self.env.target_color = self.target_color
+    def _evaluate_genomes_batch(self, genomes, config):
+        results = []
+        env = SwarmForagingEnv(n_agents=self.env.n_agents, n_blocks=self.env.n_blocks, target_color=self.target_color,
+                                duration=self.env.duration, distribution=self.env.distribution)
+        
         for genome_id, genome in genomes:
-            genome.fitness = 0.0
-            
             net = neat.nn.FeedForwardNetwork.create(genome, config)
-            obs, _ = self.env.reset(seed=self.seed)
+            
+            obs, _ = env.reset(seed=self.seed)
+            fitness = 0.0
             
             while True:
-                nn_inputs = self.env.process_observation(obs)
+                nn_inputs = env.process_observation(obs)
                 nn_outputs = np.array([net.activate(nn_input) for nn_input in nn_inputs])
-                actions = (2 * nn_outputs - 1) * self.env.max_wheel_velocity # Scale output sigmoid in range of wheel velocity
+                actions = (2 * nn_outputs - 1) * env.max_wheel_velocity
 
-                obs, reward, done, truncated, _ = self.env.step(actions)
-                genome.fitness += reward
+                obs, reward, done, truncated, _ = env.step(actions)
+                fitness += reward
 
                 if done or truncated:
                     break
-            
-            # ----- REGULARIZATION -----
-            if self.regularization_retaining is not None and self.best_individual is not None:
-                penalty_weight = 0.0
-                if  "weight" in self.regularization_retaining:
-                    # Regularize with the weights
-                    for c in genome.connections:
-                        if c in self.best_individual.connections:
-                            penalty_weight += (self.best_individual.connections[c].weight - genome.connections[c].weight) **2
-                
-                penalty_innovation = 0.0
-                if "innovation" in self.regularization_retaining:
-                    # Compare connections
-                    genome1_conn_innovations = set(gene.key for gene in self.best_individual.connections.values())
-                    genome2_conn_innovations = set(gene.key for gene in genome.connections.values())
-                    conn_diff = len(genome1_conn_innovations.symmetric_difference(genome2_conn_innovations))
-                    penalty_innovation += conn_diff
-                    # Compare nodes
-                    genome1_node_innovations = set(gene.key for gene in self.best_individual.nodes.values())
-                    genome2_node_innovations = set(gene.key for gene in genome.nodes.values())
-                    node_diff = len(genome1_node_innovations.symmetric_difference(genome2_node_innovations))
-                    penalty_innovation += node_diff
-                    # raise NotImplementedError("Regularization with innovation is not implemented yet.")
-                
-                penalty_distance = 0.0
-                if "distance" in self.regularization_retaining:
-                    config.compatibility_weight_coefficient = 0.6
-                    config.compatibility_disjoint_coefficient = 1.0
-                    penalty_distance += self.best_individual.distance(genome, config)
-                    # raise NotImplementedError("Regularization with both weights and innovation is not implemented yet.")
-                
-                genome.fitness -= (self.regularization_lambdas[0] * penalty_weight +  \
-                                    self.regularization_lambdas[1] * penalty_innovation + \
-                                    self.regularization_lambdas[2] * penalty_distance)
-            # ---------------------------
+
+            results.append((genome_id, fitness))
         
-        # ----- EVALUATE FORGETTING -----
+        return results
+
+    def _calculate_fitness_neat(self, genomes, config):
+        self.env.target_color = self.target_color
+
+        if self.n_workers > 1:
+            batch_size = max(1, len(genomes) // os.cpu_count())
+            genome_batches = [genomes[i:i + batch_size] for i in range(0, len(genomes), batch_size)]
+
+            with ProcessPoolExecutor(max_workers=os.cpu_count()) as executor:
+                futures = [executor.submit(self._evaluate_genomes_batch, batch, config) for batch in genome_batches]
+                results = []
+                for future in as_completed(futures):
+                    results.extend(future.result())
+            
+            fitness_map = dict(results)
+            for genome_id, genome in genomes:
+                genome.fitness = fitness_map[genome_id]
+        else:
+            for genome_id, genome in genomes:
+                genome.fitness = 0.0
+                
+                net = neat.nn.FeedForwardNetwork.create(genome, config)
+                obs, _ = self.env.reset(seed=self.seed)
+                
+                while True:
+                    nn_inputs = self.env.process_observation(obs)
+                    nn_outputs = np.array([net.activate(nn_input) for nn_input in nn_inputs])
+                    actions = (2 * nn_outputs - 1) * self.env.max_wheel_velocity # Scale output sigmoid in range of wheel velocity
+
+                    obs, reward, done, truncated, _ = self.env.step(actions)
+                    genome.fitness += reward
+
+                    if done or truncated:
+                        break
+        
+        # ----- REGULARIZATION -----
+        if self.regularization_retaining is not None and self.best_individual is not None:
+            # Save max fitness without penalty
+            self.fitness_no_penalty.append(max([genome.fitness for _, genome in genomes])) 
+
+            penalty_weight = 0.0
+            if  "weight" in self.regularization_retaining:
+                # Regularize with the weights
+                for c in genome.connections:
+                    if c in self.best_individual.connections:
+                        penalty_weight += (self.best_individual.connections[c].weight - genome.connections[c].weight) **2
+            
+            penalty_innovation = 0.0
+            if "innovation" in self.regularization_retaining:
+                # Compare connections
+                genome1_conn_innovations = set(gene.key for gene in self.best_individual.connections.values())
+                genome2_conn_innovations = set(gene.key for gene in genome.connections.values())
+                conn_diff = len(genome1_conn_innovations.symmetric_difference(genome2_conn_innovations))
+                penalty_innovation += conn_diff
+                # Compare nodes
+                genome1_node_innovations = set(gene.key for gene in self.best_individual.nodes.values())
+                genome2_node_innovations = set(gene.key for gene in genome.nodes.values())
+                node_diff = len(genome1_node_innovations.symmetric_difference(genome2_node_innovations))
+                penalty_innovation += node_diff
+                # raise NotImplementedError("Regularization with innovation is not implemented yet.")
+            
+            penalty_distance = 0.0
+            if "distance" in self.regularization_retaining:
+                config.compatibility_weight_coefficient = 0.6
+                config.compatibility_disjoint_coefficient = 1.0
+                penalty_distance += self.best_individual.distance(genome, config)
+                # raise NotImplementedError("Regularization with both weights and innovation is not implemented yet.")
+            
+            reg_penalty = (self.regularization_lambdas[0] * penalty_weight +  \
+                                self.regularization_lambdas[1] * penalty_innovation + \
+                                self.regularization_lambdas[2] * penalty_distance)
+            genome.fitness -= reg_penalty
+        # ---------------------------
+        
+        # ----- EVALUATE RETAINING -----
         if self.eval_retaining is not None and self.prev_target_color is not None:
             # Evaluate genomes on the previous task
-            self.env.target_color = self.prev_target_color
-            eval_genomes = copy.deepcopy(genomes)
-            
-            if self.eval_retaining == "top":
-                # Take top 3% genomes 
-                eval_genomes.sort(key=lambda x: x[1].fitness, reverse=True)
-                eval_genomes = eval_genomes[:int(len(eval_genomes) * 0.03)]
-            if self.eval_retaining == "random":
-                # Random choose eval genomes 10% of the population
-                eval_genomes = random.sample(eval_genomes, int(len(eval_genomes) * 0.1))         
-            
-            if self.eval_retaining == "find_best":
-                # Find the best genome on the previous task
-                for _, genome in eval_genomes:
-                    genome.fitness = 0.0
-                    net = neat.nn.FeedForwardNetwork.create(genome, config)
-                    obs, _ = self.env.reset(seed=self.seed)
-                    
-                    while True:
-                        nn_inputs = self.env.process_observation(obs)
-                        nn_outputs = np.array([net.activate(nn_input) for nn_input in nn_inputs])
-                        actions = (2 * nn_outputs - 1) * self.env.max_wheel_velocity
-
-                        obs, reward, done, truncated, _ = self.env.step(actions)
-                        genome.fitness += reward
-
-                        if done or truncated:
-                            break
+            # 10% of chance to evaluate on the previous task
+            random_retaining = random.random()
+            if random_retaining < 0.1: # check the size of retaining list
+                self.env.target_color = self.prev_target_color
+                eval_genomes = copy.deepcopy(genomes)
                 
-            if self.eval_retaining == "find_best":
-                eval_genomes.sort(key=lambda x: x[1].fitness, reverse=True)
-                retaining = eval_genomes[0][1].fitness
-            else:
-                # Calculate the average fitness of the eval retaining genomes
-                retaining = sum([genome.fitness for _, genome in eval_genomes]) / len(eval_genomes)
-            print(f"Retaining: {retaining}")
-            self.fitness_retaining.append(retaining)
+                if self.eval_retaining == "top":
+                    # Take top 3% genomes 
+                    eval_genomes.sort(key=lambda x: x[1].fitness, reverse=True)
+                    eval_genomes = eval_genomes[:int(len(eval_genomes) * 0.03)]
+                if self.eval_retaining == "random":
+                    # Random choose eval genomes 10% of the population
+                    eval_genomes = random.sample(eval_genomes, int(len(eval_genomes) * 0.1))         
+                
+                if self.eval_retaining == "find_best":
+                    # Find the best genome on the previous task
+                    for _, genome in eval_genomes:
+                        genome.fitness = 0.0
+                        net = neat.nn.FeedForwardNetwork.create(genome, config)
+                        obs, _ = self.env.reset(seed=self.seed)
+                        
+                        while True:
+                            nn_inputs = self.env.process_observation(obs)
+                            nn_outputs = np.array([net.activate(nn_input) for nn_input in nn_inputs])
+                            actions = (2 * nn_outputs - 1) * self.env.max_wheel_velocity
+
+                            obs, reward, done, truncated, _ = self.env.step(actions)
+                            genome.fitness += reward
+
+                            if done or truncated:
+                                break
+                    
+                if self.eval_retaining == "find_best":
+                    eval_genomes.sort(key=lambda x: x[1].fitness, reverse=True)
+                    retaining = eval_genomes[0][1].fitness
+                else:
+                    # Calculate the average fitness of the eval retaining genomes
+                    retaining = sum([genome.fitness for _, genome in eval_genomes]) / len(eval_genomes)
+                print(f"Retaining: {retaining}")
+                self.fitness_retaining.append(retaining)
         # -------------------------------
     
     def _calculate_fitness_deap(self, individual):
@@ -454,6 +510,7 @@ class EvoSwarmExperiment:
         return total_reward, info
     
     def _save_results(self):
+        # TODO: use checkpoint, i think both for neat and deap
         # Plot stats
         if self.evolutionary_algorithm == "neat":
             
@@ -484,6 +541,7 @@ class EvoSwarmExperiment:
             "std": stds,
             "retaining": self.fitness_retaining,
             "type_of_retaining": self.eval_retaining,
+            "no_penalty": self.fitness_no_penalty,
         }
         # Experiment info
         experiment = {
@@ -532,8 +590,9 @@ class EvoSwarmExperiment:
                 pickle.dump(self.toolbox_deap, f)
     
     # TODO: change name of parameters
-    def run(self, generations, eval_retaining = None, regularization_retaining = None):
-        
+    def run(self, generations, n_workers = 1, eval_retaining = None, regularization_retaining = None):
+        available_cores = multiprocessing.cpu_count()
+        self.n_workers = n_workers if n_workers <= available_cores else available_cores 
         if self.name is None:
             raise ValueError("Name is not set. Set the name of the experiment first.")
         if self.env is None:

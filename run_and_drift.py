@@ -11,7 +11,8 @@ def main(name,
         n_agents, 
         n_blocks,
         distribution,
-        seed, 
+        seed,
+        workers, 
         drifts):
     
     env = SwarmForagingEnv(n_agents = n_agents, n_blocks = n_blocks, target_color=drifts[0],
@@ -30,13 +31,15 @@ def main(name,
     
     experiment = EvoSwarmExperiment(env = env, name = name, evolutionary_algorithm=script, population_size=population_size, 
                                     controller_deap=controller_deap, config_path_neat=config_path_neat, seed = seed)
-    experiment.run(generations)
+    experiment.run(generations, n_workers = workers)
     
     for drift in drifts[1:]:
         experiment.change_objective(drift)
-        experiment.run(generations, eval_retaining = "top", regularization_retaining = ["weight", "innovation", "distance"])
+        experiment.run(generations, n_workers = workers,
+                       eval_retaining = "top", regularization_retaining = ["weight", "innovation", "distance"])
         
 if __name__ == "__main__":
+    # TODO: add as argument parrallel and drifts
     parser = argparse.ArgumentParser(description='Evolutionary swarm parameters.')
     parser.add_argument('--name', type=str, default="test", help=f'The name of the experiment.')
     parser.add_argument('--evo', type=str, default="neat", help=f'The name of the script to run. Must be one of: {EVOLUTIONARY_ALGORITHMS}')
@@ -47,6 +50,7 @@ if __name__ == "__main__":
     parser.add_argument('--blocks', type=int, default=20,help='The number of blocks in the arena.')
     parser.add_argument('--distribution', type=str, default="uniform", help='The distribution of the blocks in the arena. Must be one of: uniform or biased.')
     parser.add_argument('--seed', type=int, default=0,help='The seed for the random number generator.')
+    parser.add_argument('--workers', type=int, default=1,help='The number of workers to run the algorithm.')
     args = parser.parse_args()
     
     if args.evo not in EVOLUTIONARY_ALGORITHMS:
@@ -65,6 +69,8 @@ if __name__ == "__main__":
         raise ValueError("Distribution must be one of: uniform or biased")
     if args.seed < 0:
         raise ValueError("Seed must be greater than or equal to 0")
+    if args.workers <= 0:
+        raise ValueError("Number of workers must be greater than 0")
     
     drifts = [RED, BLUE, RED]
     
@@ -77,4 +83,5 @@ if __name__ == "__main__":
         args.blocks, 
         args.distribution,
         args.seed,
+        args.workers,
         drifts)

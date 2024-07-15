@@ -56,7 +56,14 @@ def plot_drift(paths, name):
             # Iterates thru the experiments instances
             log = load_logbook_json(paths[i][j])
             log_drift.append(log)
-        bests = [log["best"] for log in log_drift]
+        
+        bests = []
+        for log in log_drift:
+            if log["no_penalty"] == []:
+                bests.append(log["best"]) 
+            else:
+                bests.append(log["no_penalty"])
+        
         type_of_retaining = log_drift[0]["type_of_retaining"]
         avg_bests = np.mean(bests, axis=0)
         current_gen = counter_gens
