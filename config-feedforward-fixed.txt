@@ -50,7 +50,7 @@ enabled_default         = True
 enabled_mutate_rate     = 0.01
 
 [DefaultSpeciesSet]
-compatibility_threshold = 3.0
+compatibility_threshold = 4.0
 
 [DefaultStagnation]
 species_fitness_func = max

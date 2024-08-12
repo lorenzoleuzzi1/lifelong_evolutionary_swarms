@@ -13,9 +13,9 @@ echo ${nodes_array[@]}
 
 # Launching different instances of the python script with different parameters
 echo "Launching Python scripts with different parameters:"
-srun --nodes=1 --ntasks=1 -w ${nodes_array[0]} python3.11 run_and_drift.py --name dreg --evo neat --steps 800 --generations 100 --population_size 300 --agents 5 --blocks 30 --seed 1 --distribution biased &
-srun --nodes=1 --ntasks=1 -w ${nodes_array[1]} python3.11 run_and_drift.py --name dreg --evo neat --steps 800 --generations 100 --population_size 300 --agents 5 --blocks 30 --seed 2 --distribution biased &
-srun --nodes=1 --ntasks=1 -w ${nodes_array[2]} python3.11 run_and_drift.py --name dreg --evo neat --steps 800 --generations 100 --population_size 300 --agents 5 --blocks 30 --seed 3 --distribution biased &
-srun --nodes=1 --ntasks=1 -w ${nodes_array[3]} python3.11 run_and_drift.py --name dreg --evo neat --steps 800 --generations 100 --population_size 300 --agents 5 --blocks 30 --seed 4 --distribution biased &
-srun --nodes=1 --ntasks=1 -w ${nodes_array[4]} python3.11 run_and_drift.py --name dreg --evo neat --steps 800 --generations 100 --population_size 300 --agents 5 --blocks 30 --seed 5 --distribution biased &
+srun --nodes=1 --ntasks=1 -w ${nodes_array[0]} python3.11 run_and_drift.py --name newgdreg --evo neat --steps 800 --generations 100 --population_size 300 --agents 5 --blocks 30 --seed 1 --distribution biased &
+srun --nodes=1 --ntasks=1 -w ${nodes_array[1]} python3.11 run_and_drift.py --name newgdreg --evo neat --steps 800 --generations 100 --population_size 300 --agents 5 --blocks 30 --seed 2 --distribution biased &
+srun --nodes=1 --ntasks=1 -w ${nodes_array[2]} python3.11 run_and_drift.py --name newgdreg --evo neat --steps 800 --generations 100 --population_size 300 --agents 5 --blocks 30 --seed 3 --distribution biased &
+srun --nodes=1 --ntasks=1 -w ${nodes_array[3]} python3.11 run_and_drift.py --name newgdreg --evo neat --steps 800 --generations 100 --population_size 300 --agents 5 --blocks 30 --seed 4 --distribution biased &
+srun --nodes=1 --ntasks=1 -w ${nodes_array[4]} python3.11 run_and_drift.py --name newgdreg --evo neat --steps 800 --generations 100 --population_size 300 --agents 5 --blocks 30 --seed 5 --distribution biased &
 wait # Wait for all background jobs to finish

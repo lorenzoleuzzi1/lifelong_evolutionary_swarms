@@ -53,4 +53,4 @@ if __name__ == "__main__":
     for d in lambda_d:
         print(f"Running with lambda_d = {d}")
         main(f"dreg_{d}", "neat", 50, 2, 50, 5, 30, "uniform", 1, 32, drifts, 0, 0, d)
-        main(f"dreg_{d}", "neat", 50, 2, 50, 5, 30, "biased", 1, 32, drifts, 0, 0, d)
+        # main(f"dreg_{d}", "neat", 50, 2, 50, 5, 30, "biased", 1, 32, drifts, 0, 0, d)

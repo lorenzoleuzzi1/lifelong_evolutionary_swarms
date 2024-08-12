@@ -21,6 +21,7 @@ DEAP_ALGORITHMS = ['cma-es', 'ga', 'evostick']
 
 # TODO: dont save all the info for deap, just neat handles drifts
 # TODO: create two separate classes and use checkpoints
+# TODO: base class, DEAP class, NEAT class
 class EvoSwarmExperiment:
 
     def __init__(self,
@@ -30,7 +31,7 @@ class EvoSwarmExperiment:
                 controller_deap : neural_controller.NeuralController = None,
                 env : environment.SwarmForagingEnv = None, # TODO: dont pass env but params to create it
                 config_path_neat : str = None,
-                regularization_lambdas : list = [0.01, 0.01, 0.5], # weight, innovation, distance
+                reg_lambdas : dict = {"distance": 1.0, "wp": [0.4, 0.3]}, 
                 seed : int = None
                 ):
         
@@ -40,9 +41,9 @@ class EvoSwarmExperiment:
         self.env = env
         self.controller_deap = controller_deap
         self.config_path_neat = config_path_neat
-        self.regularization_lambdas = regularization_lambdas
+        self.reg_lambdas = reg_lambdas
         self.seed = seed
-        
+        self.current_generation = 0
 
         self.experiment_name = None
         self.best_individual = None
@@ -140,10 +141,11 @@ class EvoSwarmExperiment:
         self.env.target_color = self.target_color
 
         if self.n_workers > 1:
-            batch_size = max(1, len(genomes) // os.cpu_count())
+            # ----- PARALLEL EVALUATION -----
+            batch_size = max(1, len(genomes) // self.n_workers)
             genome_batches = [genomes[i:i + batch_size] for i in range(0, len(genomes), batch_size)]
 
-            with ProcessPoolExecutor(max_workers=os.cpu_count()) as executor:
+            with ProcessPoolExecutor(max_workers=self.n_workers) as executor:
                 futures = [executor.submit(self._evaluate_genomes_batch, batch, config) for batch in genome_batches]
                 results = []
                 for future in as_completed(futures):
@@ -152,7 +154,9 @@ class EvoSwarmExperiment:
             fitness_map = dict(results)
             for genome_id, genome in genomes:
                 genome.fitness = fitness_map[genome_id]
+            # -------------------------------
         else:
+            # ----- SEQUENTIAL EVALUATION -----
             for genome_id, genome in genomes:
                 genome.fitness = 0.0
                 
@@ -169,52 +173,44 @@ class EvoSwarmExperiment:
 
                     if done or truncated:
                         break
+            # -------------------------------
         
         # ----- REGULARIZATION -----
         if self.regularization_retaining is not None and self.best_individual is not None:
             # Save max fitness without penalty
-            self.fitness_no_penalty.append(max([genome.fitness for _, genome in genomes])) 
+            self.fitness_no_penalty.append(max([genome.fitness for _, genome in genomes]))
+            
+            for _, genome in genomes:
+                # Genomic distance penalty
+                
+                if "distance" in self.regularization_retaining:
+                    penalty_distance = 0.0
+                    config.compatibility_weight_coefficient = 0.6
+                    config.compatibility_disjoint_coefficient = 1.0
+                    penalty_distance += self.best_individual.distance(genome, config)
 
-            penalty_weight = 0.0
-            if  "weight" in self.regularization_retaining:
-                # Regularize with the weights
-                for c in genome.connections:
-                    if c in self.best_individual.connections:
-                        penalty_weight += (self.best_individual.connections[c].weight - genome.connections[c].weight) **2
-            
-            penalty_innovation = 0.0
-            if "innovation" in self.regularization_retaining:
-                # Compare connections
-                genome1_conn_innovations = set(gene.key for gene in self.best_individual.connections.values())
-                genome2_conn_innovations = set(gene.key for gene in genome.connections.values())
-                conn_diff = len(genome1_conn_innovations.symmetric_difference(genome2_conn_innovations))
-                penalty_innovation += conn_diff
-                # Compare nodes
-                genome1_node_innovations = set(gene.key for gene in self.best_individual.nodes.values())
-                genome2_node_innovations = set(gene.key for gene in genome.nodes.values())
-                node_diff = len(genome1_node_innovations.symmetric_difference(genome2_node_innovations))
-                penalty_innovation += node_diff
-                # raise NotImplementedError("Regularization with innovation is not implemented yet.")
-            
-            penalty_distance = 0.0
-            if "distance" in self.regularization_retaining:
-                config.compatibility_weight_coefficient = 0.6
-                config.compatibility_disjoint_coefficient = 1.0
-                penalty_distance += self.best_individual.distance(genome, config)
-                # raise NotImplementedError("Regularization with both weights and innovation is not implemented yet.")
-            
-            reg_penalty = (self.regularization_lambdas[0] * penalty_weight +  \
-                                self.regularization_lambdas[1] * penalty_innovation + \
-                                self.regularization_lambdas[2] * penalty_distance)
-            genome.fitness -= reg_penalty
+                    reg_penalty = self.reg_lambdas.get('distance') * penalty_distance
+                
+                # Weight protection penalty
+                
+                if "wp" in self.regularization_retaining:
+                    penalty_wp1 = 0.0
+                    penalty_wp2 = 0.0
+                    for c in genome.connections:
+                        if c in self.best_individual.connections:
+                            penalty_wp1 += (self.best_individual.connections[c].weight - genome.connections[c].weight) **2
+                        else:
+                            penalty_wp2 += genome.connections[c].weight ** 2
+
+                    reg_penalty = self.reg_lambdas.get('wp')[0] * penalty_wp1 + self.reg_lambdas.get('wp')[1] * penalty_wp2
+
+                genome.fitness -= reg_penalty # Apply the penalty
         # ---------------------------
         
         # ----- EVALUATE RETAINING -----
         if self.eval_retaining is not None and self.prev_target_color is not None:
             # Evaluate genomes on the previous task
-            # 10% of chance to evaluate on the previous task
-            random_retaining = random.random()
-            if random_retaining < 0.1: # check the size of retaining list
+            if self.current_generation % 10 == 0: # Evaluate every 10 generations, TODO: make it parameter
                 self.env.target_color = self.prev_target_color
                 eval_genomes = copy.deepcopy(genomes)
                 
@@ -222,27 +218,27 @@ class EvoSwarmExperiment:
                     # Take top 3% genomes 
                     eval_genomes.sort(key=lambda x: x[1].fitness, reverse=True)
                     eval_genomes = eval_genomes[:int(len(eval_genomes) * 0.03)]
+                
                 if self.eval_retaining == "random":
                     # Random choose eval genomes 10% of the population
                     eval_genomes = random.sample(eval_genomes, int(len(eval_genomes) * 0.1))         
                 
-                if self.eval_retaining == "find_best":
-                    # Find the best genome on the previous task
-                    for _, genome in eval_genomes:
-                        genome.fitness = 0.0
-                        net = neat.nn.FeedForwardNetwork.create(genome, config)
-                        obs, _ = self.env.reset(seed=self.seed)
-                        
-                        while True:
-                            nn_inputs = self.env.process_observation(obs)
-                            nn_outputs = np.array([net.activate(nn_input) for nn_input in nn_inputs])
-                            actions = (2 * nn_outputs - 1) * self.env.max_wheel_velocity
+                # Find the best genome on the previous task
+                for _, genome in eval_genomes:
+                    genome.fitness = 0.0
+                    net = neat.nn.FeedForwardNetwork.create(genome, config)
+                    obs, _ = self.env.reset(seed=self.seed)
+                    
+                    while True:
+                        nn_inputs = self.env.process_observation(obs)
+                        nn_outputs = np.array([net.activate(nn_input) for nn_input in nn_inputs])
+                        actions = (2 * nn_outputs - 1) * self.env.max_wheel_velocity
 
-                            obs, reward, done, truncated, _ = self.env.step(actions)
-                            genome.fitness += reward
+                        obs, reward, done, truncated, _ = self.env.step(actions)
+                        genome.fitness += reward
 
-                            if done or truncated:
-                                break
+                        if done or truncated:
+                            break
                     
                 if self.eval_retaining == "find_best":
                     eval_genomes.sort(key=lambda x: x[1].fitness, reverse=True)
@@ -253,6 +249,8 @@ class EvoSwarmExperiment:
                 print(f"Retaining: {retaining}")
                 self.fitness_retaining.append(retaining)
         # -------------------------------
+
+        self.current_generation += 1
     
     def _calculate_fitness_deap(self, individual):
         fitness = 0
@@ -333,7 +331,6 @@ class EvoSwarmExperiment:
 
         start = time.time()
         # Run the genetic algorithm
-        # TODO use standard algorithm
         self.population, log = algorithms.eaSimple(self.population, self.toolbox_deap, cxpb=0.8, mutpb=0.01,
                                                     ngen=generations, stats=stats, halloffame=hof, verbose=True)
         # self.population, log = eaSimpleWithElitism(self.population, self.toolbox_deap, cxpb=0.8, mutpb=0.1, 
@@ -501,9 +498,10 @@ class EvoSwarmExperiment:
             if done or truncated:
                 break
         
+        print(f"Total reward: {total_reward}")
         if save:
             if on_prev_env is not None:
-                imageio.mimsave(f"results/{self.experiment_name}/episode_{on_prev_env}.gif", frames, fps = 60)
+                imageio.mimsave(f"results/{self.experiment_name}/episode_retaining_{on_prev_env}.gif", frames, fps = 60)
             else:
                 imageio.mimsave(f"results/{self.experiment_name}/episode.gif", frames, fps = 60)
         
@@ -532,7 +530,18 @@ class EvoSwarmExperiment:
         plot_evolution(bests, avgs = avgs, medians = medians, 
                        filename = f"results/{self.experiment_name}/evolution_plot.png")
         
+        
         total_reward, info = self.run_best(save = True)
+        
+        if self.eval_retaining is not None or self.prev_target_color is not None:
+            total_reward_retaining_top, info_retaining_top = self.run_best(on_prev_env = "top", save = True)
+            total_reward_retaining_find_best, info_retaining_find_best = self.run_best(on_prev_env = "find_best", save = True)
+        else:
+            total_reward_retaining_top = None
+            info_retaining_top = None
+            total_reward_retaining_find_best = None
+            info_retaining_find_best = None
+
         # Stats
         logbook = {
             "best": bests,
@@ -560,6 +569,14 @@ class EvoSwarmExperiment:
             "info": info,
             "correct_retrieves": len(info["correct_retrieves"]),
             "wrong_retrieves": len(info["wrong_retrieves"]),
+            "best_fitness_retaining_top": total_reward_retaining_top,
+            "info_retaining_top": info_retaining_top,
+            "correct_retrieves_retaining_top": len(info_retaining_top["correct_retrieves"]) if info_retaining_top is not None else None,
+            "wrong_retrieves_retaining_top": len(info_retaining_top["wrong_retrieves"]) if info_retaining_top is not None else None,
+            "best_fitness_retaining_find_best": total_reward_retaining_find_best,
+            "info_retaining_find_best": info_retaining_find_best,
+            "correct_retrieves_retaining_find_best": len(info_retaining_find_best["correct_retrieves"]) if info_retaining_find_best is not None else None,
+            "wrong_retrieves_retaining_find_best": len(info_retaining_find_best["wrong_retrieves"]) if info_retaining_find_best is not None else None,
             "time": self.time_elapsed
         }
         # Save the logbook as json
@@ -611,9 +628,8 @@ class EvoSwarmExperiment:
                 raise ValueError("Evaluation of retaining must be one of: random, top, find_best")
         self.regularization_retaining = regularization_retaining
         if regularization_retaining is not None:
-            for r in regularization_retaining:
-                if r not in ["weight", "innovation", "distance"]:
-                    raise ValueError("Regularization of retaining must be one of: weight, innovation, distance")
+            if regularization_retaining not in ["distance", "wp"]:
+                    raise ValueError("Regularization of retaining must be one of: distance, wp")
           
         print(f"\n{self.experiment_name}")
         print(f"Running {self.evolutionary_algorithm} with with the following parameters:")

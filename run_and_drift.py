@@ -36,7 +36,7 @@ def main(name,
     for drift in drifts[1:]:
         experiment.change_objective(drift)
         experiment.run(generations, n_workers = workers,
-                       eval_retaining = "top", regularization_retaining = ["weight", "innovation", "distance"])
+                       eval_retaining = "top", regularization_retaining = "wp")
         
 if __name__ == "__main__":
     # TODO: add as argument parrallel and drifts
