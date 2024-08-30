@@ -2,7 +2,7 @@ import numpy as np
 import neat
 import environment
 import utils
-from parallel import ThreadedEvaluator, ParallelEvaluator
+from trashcan.parallel import ThreadedEvaluator, ParallelEvaluator
 import time
 import multiprocessing
 from concurrent.futures import ProcessPoolExecutor

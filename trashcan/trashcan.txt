@@ -372,3 +372,18 @@ if self.nest == UP:
         #     omega_c = self.max_wheel_velocity / (ROBOT_SIZE / 2)
         #     self.agents_heading[colliding_agents] = np.mod(
         #         old_agents_heading[colliding_agents] + np.degrees(omega_c * self.time_step), 360)
+
+
+
+
+#     if self.regularization_retaining == "gd" or self.regularization_retaining == "genetic_distance":
+        #             regularization_str = "_gd_"
+        #     elif self.regularization_retaining == "wp" or self.regularization_retaining == "weight_protection":
+        #             regularization_str = "wp"
+        #     if regularization_str == "_gd_":
+        #         lambdas_str = f"_{self.reg_lambdas.get('gd')}"
+        #     elif regularization_str == "wp":
+        #             lambdas_str = f"_{self.reg_lambdas.get('wp')[0]}_{self.reg_lambdas.get('wp')[1]}"
+        # else:
+        #     regularization_str = ""
+        #     lambdas_str = ""

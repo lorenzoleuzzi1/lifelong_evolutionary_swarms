@@ -22,6 +22,7 @@ DEAP_ALGORITHMS = ['cma-es', 'ga', 'evostick']
 # TODO: dont save all the info for deap, just neat handles drifts
 # TODO: create two separate classes and use checkpoints
 # TODO: base class, DEAP class, NEAT class
+# TODO: onlt NEAT handles drifts
 class EvoSwarmExperiment:
 
     def __init__(self,
@@ -29,10 +30,11 @@ class EvoSwarmExperiment:
                 name : str = None,
                 population_size : int = None,
                 controller_deap : neural_controller.NeuralController = None,
-                env : environment.SwarmForagingEnv = None, # TODO: dont pass env but params to create it
+                env : environment.SwarmForagingEnv = None,
                 config_path_neat : str = None,
-                reg_lambdas : dict = {"distance": 1.0, "wp": [0.4, 0.3]}, 
-                seed : int = None
+                reg_lambdas : dict = {"gd": 6.0, "wp": [0.4, 0.3]}, 
+                seed : int = None,
+                n_workers : int = 1
                 ):
         
         self.evolutionary_algorithm = evolutionary_algorithm
@@ -56,8 +58,8 @@ class EvoSwarmExperiment:
             self.target_color = None
         self.prev_target_color = None
 
-        # they are set when calling run method TODO: maybe init??
-        self.n_workers = False
+        # they are set when calling run method TODO: maybe init?? n_workers yes but the other no bc the change between runs
+        self.n_workers = n_workers
         self.eval_retaining = None
         self.regularization_retaining = None
         self.fitness_retaining = []
@@ -181,19 +183,18 @@ class EvoSwarmExperiment:
             self.fitness_no_penalty.append(max([genome.fitness for _, genome in genomes]))
             
             for _, genome in genomes:
-                # Genomic distance penalty
                 
-                if "distance" in self.regularization_retaining:
+                # Genetic distance penalty
+                if self.regularization_retaining == "gd" or self.regularization_retaining == "genetic_distance":
                     penalty_distance = 0.0
                     config.compatibility_weight_coefficient = 0.6
                     config.compatibility_disjoint_coefficient = 1.0
                     penalty_distance += self.best_individual.distance(genome, config)
 
-                    reg_penalty = self.reg_lambdas.get('distance') * penalty_distance
+                    reg_penalty = self.reg_lambdas.get('gd') * penalty_distance
                 
                 # Weight protection penalty
-                
-                if "wp" in self.regularization_retaining:
+                if self.regularization_retaining == "wp" or self.regularization_retaining == "weight_protection":
                     penalty_wp1 = 0.0
                     penalty_wp2 = 0.0
                     for c in genome.connections:
@@ -217,7 +218,7 @@ class EvoSwarmExperiment:
                 if self.eval_retaining == "top":
                     # Take top 3% genomes 
                     eval_genomes.sort(key=lambda x: x[1].fitness, reverse=True)
-                    eval_genomes = eval_genomes[:int(len(eval_genomes) * 0.03)]
+                    eval_genomes = eval_genomes[0]
                 
                 if self.eval_retaining == "random":
                     # Random choose eval genomes 10% of the population
@@ -240,7 +241,7 @@ class EvoSwarmExperiment:
                         if done or truncated:
                             break
                     
-                if self.eval_retaining == "find_best":
+                if self.eval_retaining == "population":
                     eval_genomes.sort(key=lambda x: x[1].fitness, reverse=True)
                     retaining = eval_genomes[0][1].fitness
                 else:
@@ -421,8 +422,8 @@ class EvoSwarmExperiment:
             raise ValueError("Previous target color is not set. Set it first.")
         if on_prev_env is not None and self.population is None:
             raise ValueError("Population is not set. Set it first.")
-        if on_prev_env is not None and on_prev_env not in ["random", "top", "find_best"]:
-            raise ValueError("On previous environment must be one of: random, top, find_best")
+        if on_prev_env is not None and on_prev_env not in ["random", "top", "population"]:
+            raise ValueError("On previous environment must be one of: random, top, population")
         
         # Set up the neural network controller
         if self.evolutionary_algorithm == 'neat':
@@ -449,7 +450,7 @@ class EvoSwarmExperiment:
             if self.eval_retaining == "random":
                 genome_run = random.sample(genomes, 1)      
             
-            if self.eval_retaining == "find_best":
+            if self.eval_retaining == "population":
                 
                 # Find the best genome on the previous task
                 for _, genome in genomes:
@@ -508,7 +509,6 @@ class EvoSwarmExperiment:
         return total_reward, info
     
     def _save_results(self):
-        # TODO: use checkpoint, i think both for neat and deap
         # Plot stats
         if self.evolutionary_algorithm == "neat":
             
@@ -535,12 +535,12 @@ class EvoSwarmExperiment:
         
         if self.eval_retaining is not None or self.prev_target_color is not None:
             total_reward_retaining_top, info_retaining_top = self.run_best(on_prev_env = "top", save = True)
-            total_reward_retaining_find_best, info_retaining_find_best = self.run_best(on_prev_env = "find_best", save = True)
+            total_reward_retaining_population, info_retaining_population = self.run_best(on_prev_env = "population", save = True)
         else:
             total_reward_retaining_top = None
             info_retaining_top = None
-            total_reward_retaining_find_best = None
-            info_retaining_find_best = None
+            total_reward_retaining_population = None
+            info_retaining_population = None
 
         # Stats
         logbook = {
@@ -549,7 +549,6 @@ class EvoSwarmExperiment:
             "median": medians,
             "std": stds,
             "retaining": self.fitness_retaining,
-            "type_of_retaining": self.eval_retaining,
             "no_penalty": self.fitness_no_penalty,
         }
         # Experiment info
@@ -573,11 +572,14 @@ class EvoSwarmExperiment:
             "info_retaining_top": info_retaining_top,
             "correct_retrieves_retaining_top": len(info_retaining_top["correct_retrieves"]) if info_retaining_top is not None else None,
             "wrong_retrieves_retaining_top": len(info_retaining_top["wrong_retrieves"]) if info_retaining_top is not None else None,
-            "best_fitness_retaining_find_best": total_reward_retaining_find_best,
-            "info_retaining_find_best": info_retaining_find_best,
-            "correct_retrieves_retaining_find_best": len(info_retaining_find_best["correct_retrieves"]) if info_retaining_find_best is not None else None,
-            "wrong_retrieves_retaining_find_best": len(info_retaining_find_best["wrong_retrieves"]) if info_retaining_find_best is not None else None,
-            "time": self.time_elapsed
+            "best_fitness_retaining_population": total_reward_retaining_population,
+            "info_retaining_population": info_retaining_population,
+            "correct_retrieves_retaining_population": len(info_retaining_population["correct_retrieves"]) if info_retaining_population is not None else None,
+            "wrong_retrieves_retaining_population": len(info_retaining_population["wrong_retrieves"]) if info_retaining_population is not None else None,
+            "type_of_retaining": self.eval_retaining,
+            "regularization": self.regularization_retaining,
+            "regularization_lambdas": self.reg_lambdas,
+            "time": self.time_elapsed,
         }
         # Save the logbook as json
         with open(f"results/{self.experiment_name}/logbook.json", "w") as f:
@@ -609,7 +611,9 @@ class EvoSwarmExperiment:
     # TODO: change name of parameters
     def run(self, generations, n_workers = 1, eval_retaining = None, regularization_retaining = None):
         available_cores = multiprocessing.cpu_count()
-        self.n_workers = n_workers if n_workers <= available_cores else available_cores 
+        self.n_workers = n_workers if n_workers <= available_cores else available_cores
+        self.eval_retaining = eval_retaining
+
         if self.name is None:
             raise ValueError("Name is not set. Set the name of the experiment first.")
         if self.env is None:
@@ -618,18 +622,21 @@ class EvoSwarmExperiment:
             raise ValueError("Evolutionary algorithm is not set. Set the evolutionary algorithm first.")
         if self.population_size is None:
             raise ValueError("Population size is not set. Set the population size first.")
+        if eval_retaining is not None:
+            if eval_retaining not in ["random", "top", "population"]:
+                raise ValueError("Evaluation of retaining must be one of: random, top, population")
+        self.regularization_retaining = regularization_retaining
+        if regularization_retaining is not None:
+            if regularization_retaining not in ["gd", "wp", "genetic_distance", "weight_protection"]:
+                    raise ValueError("Regularization of retaining must be one of: gd, wp, genetic_distance, weight_protection")
+            
         if self.experiment_name is None:
             distribution_str = "u" if self.env.distribution == "uniform" else "b"
             self.experiment_name = f"{self.name}_{self.evolutionary_algorithm}_{self.env.duration}_{generations}_{self.population_size}_{self.env.n_agents}_{self.env.n_blocks}_{distribution_str}_{self.seed}"
+        
         os.makedirs(f"results/{self.experiment_name}", exist_ok=True) # Create directory for the experiment results
-        self.eval_retaining = eval_retaining
-        if eval_retaining is not None:
-            if eval_retaining not in ["random", "top", "find_best"]:
-                raise ValueError("Evaluation of retaining must be one of: random, top, find_best")
-        self.regularization_retaining = regularization_retaining
-        if regularization_retaining is not None:
-            if regularization_retaining not in ["distance", "wp"]:
-                    raise ValueError("Regularization of retaining must be one of: distance, wp")
+        
+        
           
         print(f"\n{self.experiment_name}")
         print(f"Running {self.evolutionary_algorithm} with with the following parameters:")

@@ -19,6 +19,12 @@ def load_logbook_json(path):
         logbook = json.load(f)
     return logbook
 
+def load_experiment_json(path):
+    experiment_path = f"{path}/experiment.json"
+    with open(experiment_path, "r") as f:
+        experiment = json.load(f)
+    return experiment
+
 def plot_drift(paths, tasks, name):
     """
     paths must be in the format:
@@ -40,10 +46,13 @@ def plot_drift(paths, tasks, name):
 
         # Iterate thru the drifts
         log_drift = []
+        experiment_info_drift = []
         for j in range(len(paths[i])):
             # Iterates thru the experiments instances
             log = load_logbook_json(paths[i][j])
             log_drift.append(log)
+            experiment_info = load_experiment_json(paths[i][j])
+            experiment_info_drift.append(experiment_info)
 
         bests = []
         for log in log_drift:
@@ -60,7 +69,7 @@ def plot_drift(paths, tasks, name):
         counter_gens += len(avg_bests)
         current_color = tasks_plot_color_map[tasks[i]]
 
-        baf.extend(avg_bests) # TODO: other measures
+        baf.extend(avg_bests)
         beef.append(avg_bests[-1])
         
         # Plot best
@@ -78,11 +87,15 @@ def plot_drift(paths, tasks, name):
         if i != 0:
             prev_color = tasks_plot_color_map[tasks[i-1]]
             
+            
             forgetting = [log["retaining"] for log in log_drift]
             avg_forgetting = np.mean(forgetting, axis=0)
+            # TODO: not needed if retaining is same of the plot, also can be retaing find bests
+            retaining_end = [experiment_info["best_fitness_retaining_top"] for experiment_info in experiment_info_drift]
+            avg_retaining_end = np.mean(retaining_end)
             
             raf.extend(avg_forgetting)
-            reef.append(avg_forgetting[-1])
+            reef.append(avg_retaining_end)
             
             # range from current to counter_gens but every 10 gens
             range_forgetting = np.arange(current_gen, counter_gens, 10)
@@ -115,7 +128,7 @@ def plot_drift(paths, tasks, name):
         plt.title("Evolution with Drifts")
     plt.xlabel("Generations")
     plt.ylabel("Fitness")
-    plt.savefig(f"{name}.png")
+    plt.savefig(f"plots/{name}.png")
     plt.show()
 
     # Save the data in csv, read csv and write new record at the end of the csv
@@ -131,7 +144,7 @@ def plot_drift(paths, tasks, name):
     #         row += f", {beef[i+1]}, {reef[i]}"
     #     f.write(row + "\n")
     
-
+    # TODO: rename
     drift_string = ""
     for task in tasks:
         if task != tasks[-1]:
@@ -142,16 +155,16 @@ def plot_drift(paths, tasks, name):
     
     if not os.path.exists(f"results_{drift_string}.csv"):
         df = pd.DataFrame(columns=["Name", "baf", "avg_beef", "raf", "avg_reef", "evo1_beef", "evo2_beef", "evo2_reef", "evo3_beef", "evo3_reef"])
-        df.to_csv(f"results_drift{drift_string}.csv", index=False)
+        df.to_csv(f"results_{drift_string}.csv", index=False)
     
-    df = pd.read_csv(f"results_drift{drift_string}.csv")
+    df = pd.read_csv(f"results_{drift_string}.csv")
     row = {"Name": name, "baf": np.mean(baf), "avg_beef": np.mean(beef), "raf": np.mean(raf), "avg_reef": np.mean(reef)}
     row["evo1_beef"] = beef[0]
     for i in range(len(reef)):
         row[f"evo{i+2}_beef"] = beef[i+1]
         row[f"evo{i+2}_reef"] = reef[i]
-    df = pd.concat([df, pd.DataFrame.from_records([row])])
-    df.to_csv(f"results_drift{drift_string}.csv", index=False)
+    new_df = pd.concat([df, pd.DataFrame.from_records([row])])
+    new_df.to_csv(f"results_{drift_string}.csv", index=False)
 
 if __name__ == "__main__":
     # path = "/Users/lorenzoleuzzi/Library/CloudStorage/OneDrive-UniversityofPisa/lifelong\ evolutionary\ swarms/results" 

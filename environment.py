@@ -53,6 +53,58 @@ ROTATE_NEGATIVE = [3.14159265, 3.14159265, 3.14159265]
 # TODO: check for more speed optimization in the code
 
 class SwarmForagingEnv(gym.Env):
+    """
+    Environment for swarm foraging task.
+    Parameters:
+    - target_color (int): The color of the objective block.
+    - size (int): The size of the square grid.
+    - n_agents (int): The number of agents in the environment.
+    - n_blocks (int): The number of blocks in the environment.
+    - rate_target_block (float): The rate of target blocks in the environment.
+    - n_neighbors (int): The number of neighbors to consider for each agent.
+    - sensor_range (float): The range of the agent's sensors.
+    - max_wheel_velocity (float): The maximum wheel velocity of the agents.
+    - sensitivity (float): How close the agent can get to the block to pick it up.
+    - time_step (float): The time step of the simulation.
+    - duration (int): The maximum number of steps for an episode.
+    - max_retrieves (int): The maximum number of retrieves for an episode.
+    - distribution (str): The distribution type of the block colors.
+    Attributes:
+    - nest (int): The nest location.
+    - drop_zone (int): The drop zone location.
+    - _correct_retrieves (list): List of correct retrieves.
+    - _wrong_retrieves (list): List of wrong retrieves.
+    - agents_location (ndarray): Array of agents' locations.
+    - _agents_carrying (ndarray): Array indicating which block each agent is carrying.
+    - agents_heading (ndarray): Array of agents' headings.
+    - blocks_location (ndarray): Array of blocks' locations.
+    - blocks_color (ndarray): Array of blocks' colors.
+    - _blocks_picked_up (ndarray): Array indicating which agent picked up each block.
+    - _distance_matrix_agent_agent (ndarray): Matrix of distances between agents.
+    - _direction_matrix_agent_agent (ndarray): Matrix of directions between agents.
+    - _distance_matrix_agent_agent (ndarray): Matrix of distances between agents and blocks.
+    - _direction_matrix_agent_block (ndarray): Matrix of directions between agents and blocks.
+    - sensitivity (float): How close to interact.
+    - n_neighbors (int): The number of neighbors to consider for each agent.
+    - _neighbors (ndarray): Array of neighbors detected by each agent.
+    - _previous_neighbors (ndarray): Array of previous neighbors detected by each agent.
+    - sensor_range (float): The range of the agent's sensors.
+    - sensor_angle (int): The angle of the agent's sensors.
+    - max_wheel_velocity (float): The maximum wheel velocity of the agents.
+    - _rewards (ndarray): Array of rewards for each agent.
+    - duration (int): The maximum number of steps for an episode.
+    - _correct_retrieves (list): List of correct retrieves.
+    - _wrong_retrieves (list): List of wrong retrieves.
+    - max_retrieves (int): The maximum number of retrieves for an episode.
+    - current_step (int): The current step of the episode.
+    - _colors_map (dict): Dictionary mapping colors to color codes.
+    - _reset_color (str): The color code to reset the color to default.
+    - n_types (int): The number of types in the environment.
+    Action Space:
+    - Tuple of Box spaces representing the action space for each agent.
+    Observation Space:
+    - Tuple of Dict spaces representing the observation space for each agent.
+    """
 
     def __init__(
             self, 
@@ -60,7 +112,6 @@ class SwarmForagingEnv(gym.Env):
             size = SIMULATION_ARENA_SIZE, 
             n_agents = 3, 
             n_blocks = 10,
-            rate_target_block = 0.5, 
             n_neighbors = 3,
             sensor_range = SIMULATION_SENSOR_RANGE,
             max_wheel_velocity = SIMULATION_MAX_WHEEL_VELOCITY,
@@ -90,7 +141,7 @@ class SwarmForagingEnv(gym.Env):
         self.blocks_location = np.zeros((self.n_blocks, 2), dtype=float)
         self.blocks_color = np.zeros(self.n_blocks, dtype=int)
         self._blocks_picked_up = np.full(self.n_blocks, -1, dtype=int)
-        self.rate_target_block = rate_target_block
+        self.rate_target_block = 0.5
         self.distribution = distribution
 
         self._distance_matrix_agent_agent = np.zeros((self.n_agents, self.n_blocks), dtype=float)
