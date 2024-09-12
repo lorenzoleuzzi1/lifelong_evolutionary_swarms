@@ -43,8 +43,6 @@ def plot_drift(paths, tasks, name):
 
     plotted_task = []
     plotted_retaining = []
-    best_instances = []
-    best_retention_instances = []
 
     for i in range(len(paths)):
 
@@ -67,7 +65,6 @@ def plot_drift(paths, tasks, name):
                 bests.append(no_penalty)
         
         type_of_retaining = experiment_info_drift[0]["type_of_retaining"]
-        best_instances.append(np.argmax([experiment_info["best_fitness"] for experiment_info in experiment_info_drift]))
         avg_bests = np.mean(bests, axis=0)
 
         current_gen = counter_gens
@@ -94,7 +91,6 @@ def plot_drift(paths, tasks, name):
             
             
             forgetting = [log["retaining"] for log in log_drift]
-            best_retention_instances.append(np.argmax([experiment_info["best_fitness_retaining_top"] for experiment_info in experiment_info_drift]))
             avg_forgetting = np.mean(forgetting, axis=0)
             # TODO: not needed if retaining is same of the plot, also can be retaing find bests
             retaining_end = [experiment_info["best_fitness_retaining_top"] for experiment_info in experiment_info_drift]
@@ -124,14 +120,9 @@ def plot_drift(paths, tasks, name):
     baf = np.array(baf).flatten()
     print(f"Best Anytime Fitness: {np.mean(baf)}")
     print(f"Average End Evolution Fitness: {np.mean(beef)}")
-    for i in range(len(best_instances)):
-        print(f"Best seed for evo {i} at {best_instances[i]}") 
-    
     raf = np.array(raf).flatten()
-    print(f"Average Retaining End Evolution Fitness: {np.mean(reef)}")
-    for i in range(len(best_retention_instances)):
-        print(f"Best seed for retaining evo {i} at {best_retention_instances[i]}")
-
+    print(f"Retaining Anytime Fitness: {np.mean(raf)}")
+    print(f"Average Retaining End Evolution Fitness: {np.mean(reef)}")    
     plt.legend(loc="lower left", fontsize=8.5)
     if len(tasks) == 1:
         plt.title("Evolution")
@@ -182,91 +173,49 @@ if __name__ == "__main__":
 
     seeds = range(10)
     # Define the directory containing the files
-    results_path = os.path.abspath("/Users/lorenzoleuzzi/Library/CloudStorage/OneDrive-UniversityofPisa/lifelong evolutionary swarms/results")
-    results_path = os.path.abspath("/Users/lorenzoleuzzi/Library/CloudStorage/OneDrive-UniversityofPisa/lifelong evolutionary swarms/results/drift_search_coarse/results")
+    directory = 'results'
 
-    tasks = [3, 4, 3]
-    name = "cheat"
     # Regular expression pattern to match the desired part
-    # pattern = r"^(?!.*drift).*$"
+    pattern = r"^(?!.*drift).*$"
 
-    # # Set to store unique parts of the filenames
-    # unique_parts = set()
+    # Set to store unique parts of the filenames
+    unique_parts = set()
 
-    # # Iterate through all files in the specified directory
-    # for filename in os.listdir(results_path):
-    #     # Check if the filename matches the pattern
-    #     match = re.match(pattern, filename)
-    #     if match:
-    #         # If there's a match, add it to the set
-    #         unique_parts.add(match.group()[:-2]) # remove the seed TODO: if seed is longer that 1 digit dont work
+    # Iterate through all files in the specified directory
+    for filename in os.listdir(directory):
+        # Check if the filename matches the pattern
+        match = re.match(pattern, filename)
+        if match:
+            # If there's a match, add it to the set
+            unique_parts.add(match.group()[:-2]) # remove the seed TODO: if seed is longer that 1 digit dont work
 
-    # # Convert the set to a sorted list
-    # exps = sorted(list(unique_parts))
+    # Convert the set to a sorted list
+    exps = sorted(list(unique_parts))
 
-    # # Print the result
-    # print(exps)
+    # Print the result
+    print(exps)
 
-    # exps = ["baselinefrgd3_neat_500_500_50_3_7_b", "baselinefrgd3_neat_500_500_50_3_7_u"]
+    exps = ["baselinefr_neat_800_100_100_5_30_b", "baselinefr_neat_800_100_100_5_30_u"]
     # path = "/Users/lorenzoleuzzi/Library/CloudStorage/OneDrive-UniversityofPisa/lifelong\ evolutionary\ swarms/results" 
-    # path = "results"
-    # for exp in exps:
-    #     name = exp
-    #     drift1 = "drift34"
-    #     drift2 = "drift43"
-    #     tasks = [3, 4, 3]
+    path = "results"
+    for exp in exps:
+        name = exp
+        drift1 = "drift34"
+        drift2 = "drift43"
+        tasks = [3, 4, 3]
 
-    #     experiments_list = []
-    #     drift_str = ""
-    #     for i, task in enumerate(tasks):
-    #         experiments = []
-    #         if i != 0:
-    #             drift_str = drift_str + f"_drift{tasks[i-1]}{tasks[i]}"
-    #         for seed in seeds:
-    #             if i == 0:
-    #                 experiments.append(f"{path}/{name}_{seed}")
-    #             else:
-    #                 experiments.append(f"{path}/{name}_{seed}{drift_str}")
-    #         experiments_list.append(experiments)
+        experiments_list = []
+        drift_str = ""
+        for i, task in enumerate(tasks):
+            experiments = []
+            if i != 0:
+                drift_str = drift_str + f"_drift{tasks[i-1]}{tasks[i]}"
+            for seed in seeds:
+                if i == 0:
+                    experiments.append(f"{path}/{name}_{seed}")
+                else:
+                    experiments.append(f"{path}/{name}_{seed}{drift_str}")
+            experiments_list.append(experiments)
         
-    #     plot_drift(experiments_list, tasks, name)
-    experiments_list = [[
-        f"{results_path}/gdcoarse5_neat_800_100_100_5_30_u_1",
-        # f"{results_path}/bristol/bristol2gd3_neat_500_50_300_3_7_u_0",
-        # f"{results_path}/bristol/bristol3gd3_neat_500_50_300_3_7_u_0"
-        # f"{results_path}/bristol/gd_3seed3gd3_neat_500_50_300_3_7_u_3",
-        # f"{results_path}/bristol/gd_3seed4gd3_neat_500_50_300_3_7_u_3",
-        # f"{results_path}/bristol/gd_3seed5gd3_neat_500_50_300_3_7_u_3",
-        # f"{results_path}/bristol/gd_3seed6gd3_neat_500_50_300_3_7_u_3",
-        # f"{results_path}/bristol/gd_3seed7gd3_neat_500_50_300_3_7_u_3",
-        # f"{results_path}/bristol/gd_3seed8gd3_neat_500_50_300_3_7_u_3",
-        # f"{results_path}/bristol/gd_3seed9gd3_neat_500_50_300_3_7_u_3"
-    ],
-        [
-        f"{results_path}/gdcoarse21_neat_800_100_100_5_30_u_1_drift34",
-        # f"{results_path}/bristol/bristol2gd3_neat_500_50_300_3_7_u_0_drift34",
-        # f"{results_path}/bristol/bristol3gd3_neat_500_50_300_3_7_u_0_drift34"
-        # f"{results_path}/bristol/gd_3seed3gd3_neat_500_50_300_3_7_u_0_drift34",
-        # f"{results_path}/bristol/gd_3seed4gd3_neat_500_50_300_3_7_u_0_drift34",
-        # f"{results_path}/bristol/gd_3seed5gd3_neat_500_50_300_3_7_u_0_drift34",
-        # f"{results_path}/bristol/gd_3seed6gd3_neat_500_50_300_3_7_u_0_drift34",
-        # f"{results_path}/bristol/gd_3seed7gd3_neat_500_50_300_3_7_u_0_drift34",
-        # f"{results_path}/bristol/gd_3seed8gd3_neat_500_50_300_3_7_u_0_drift34",
-        # f"{results_path}/bristol/gd_3seed9gd3_neat_500_50_300_3_7_u_0_drift34"
-    ],
-    [
-        f"{results_path}/gdcoarse5_neat_800_100_100_5_30_u_5_drift34_drift43",
-        # f"{results_path}/bristol/bristol2gd3_neat_500_50_300_3_7_u_0_drift34_drift43",
-        # f"{results_path}/bristol/bristol3gd3_neat_500_50_300_3_7_u_0_drift34_drift43"
-        # f"{results_path}/bristol/gd_3seed3gd3_neat_500_50_300_3_7_u_0_drift34_drift43",
-        # f"{results_path}/bristol/gd_3seed4gd3_neat_500_50_300_3_7_u_0_drift34_drift43",
-        # f"{results_path}/bristol/gd_3seed5gd3_neat_500_50_300_3_7_u_0_drift34_drift43",
-        # f"{results_path}/bristol/gd_3seed6gd3_neat_500_50_300_3_7_u_0_drift34_drift43",
-        # f"{results_path}/bristol/gd_3seed7gd3_neat_500_50_300_3_7_u_0_drift34_drift43",
-        # f"{results_path}/bristol/gd_3seed8gd3_neat_500_50_300_3_7_u_0_drift34_drift43",
-        # f"{results_path}/bristol/gd_3seed9gd3_neat_500_50_300_3_7_u_0_drift34_drift43"
-    ]      
-    ]
-
-    plot_drift(experiments_list, tasks, name)
+        plot_drift(experiments_list, tasks, name)
                 

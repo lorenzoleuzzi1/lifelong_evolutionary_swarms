@@ -31,6 +31,7 @@ class EvoSwarmExperiment:
                 population_size : int = None,
                 controller_deap : neural_controller.NeuralController = None,
                 env : environment.SwarmForagingEnv = None,
+                env_initial_state : dict = None,
                 config_path_neat : str = None,
                 reg_lambdas : dict = {"gd": 6.0, "wp": [0.4, 0.3]}, 
                 seed : int = None,
@@ -41,6 +42,7 @@ class EvoSwarmExperiment:
         self.name = name
         self.population_size = population_size
         self.env = env
+        self.env_initial_state = env_initial_state
         self.controller_deap = controller_deap
         self.config_path_neat = config_path_neat
         self.reg_lambdas = reg_lambdas
@@ -103,8 +105,9 @@ class EvoSwarmExperiment:
                 self.controller_deap = pickle.load(f)
             with open(folder_path + '/toolbox.pkl', 'rb') as f:
                 self.toolbox_deap = pickle.load(f)
-        
-    def change_objective(self, objective):
+    
+    # TODO: objective, target... choose one
+    def change_objective(self, objective, env_initial_state = None):
         self.fitness_retaining = []
         self.fitness_no_penalty = []
         self.experiment_name = f"{self.experiment_name}_drift{self.target_color}{objective}"
@@ -112,16 +115,23 @@ class EvoSwarmExperiment:
         self.target_color = objective
         
         self.env.target_color = objective
+
+        if env_initial_state is not None:
+            self.env_initial_state = env_initial_state
      
     def _evaluate_genomes_batch(self, genomes, config):
         results = []
-        env = SwarmForagingEnv(n_agents=self.env.n_agents, n_blocks=self.env.n_blocks, target_color=self.target_color,
-                                duration=self.env.duration, distribution=self.env.distribution)
+        env = SwarmForagingEnv(n_agents=self.env.n_agents, n_blocks=self.env.n_blocks, 
+                               target_color=self.target_color,
+                                duration=self.env.duration, 
+                                distribution=self.env.distribution,
+                                repositioning=self.env.repositioning,
+                                max_retrieves=self.env.max_retrieves) # TODO: consider if its better to just do a deepcopy, which one is faster
         
         for genome_id, genome in genomes:
             net = neat.nn.FeedForwardNetwork.create(genome, config)
             
-            obs, _ = env.reset(seed=self.seed)
+            obs, _ = env.reset(seed=self.seed, initial_state=self.env_initial_state)
             fitness = 0.0
             
             while True:
@@ -163,7 +173,7 @@ class EvoSwarmExperiment:
                 genome.fitness = 0.0
                 
                 net = neat.nn.FeedForwardNetwork.create(genome, config)
-                obs, _ = self.env.reset(seed=self.seed)
+                obs, _ = self.env.reset(seed=self.seed, initial_state=self.env_initial_state)
                 
                 while True:
                     nn_inputs = self.env.process_observation(obs)
@@ -218,9 +228,9 @@ class EvoSwarmExperiment:
                 if self.eval_retaining == "top":
                     # Take top 3% genomes 
                     eval_genomes.sort(key=lambda x: x[1].fitness, reverse=True)
-                    eval_genomes = eval_genomes[0]
+                    eval_genomes = [eval_genomes[0]]
                 
-                if self.eval_retaining == "random":
+                if self.eval_retaining == "random": # TODO: remove random
                     # Random choose eval genomes 10% of the population
                     eval_genomes = random.sample(eval_genomes, int(len(eval_genomes) * 0.1))         
                 
@@ -228,7 +238,7 @@ class EvoSwarmExperiment:
                 for _, genome in eval_genomes:
                     genome.fitness = 0.0
                     net = neat.nn.FeedForwardNetwork.create(genome, config)
-                    obs, _ = self.env.reset(seed=self.seed)
+                    obs, _ = self.env.reset(seed=self.seed, initial_state=self.env_initial_state)
                     
                     while True:
                         nn_inputs = self.env.process_observation(obs)
@@ -255,7 +265,7 @@ class EvoSwarmExperiment:
     
     def _calculate_fitness_deap(self, individual):
         fitness = 0
-        obs, _ = self.env.reset(seed=self.seed)
+        obs, _ = self.env.reset(seed=self.seed, initial_state=self.env_initial_state)
         
         self.controller_deap.set_weights_from_vector(individual) # Set the weights of the network
         
@@ -456,7 +466,7 @@ class EvoSwarmExperiment:
                 for _, genome in genomes:
                     genome.fitness = 0.0
                     net = neat.nn.FeedForwardNetwork.create(genome, config)
-                    obs, _ = self.env.reset(seed=self.seed)
+                    obs, _ = self.env.reset(seed=self.seed, initial_state=self.env_initial_state)
                     
                     while True:
                         nn_inputs = self.env.process_observation(obs)
@@ -480,7 +490,7 @@ class EvoSwarmExperiment:
         frames = []
         done = False
         total_reward = 0
-        obs, _ = self.env.reset(seed=self.seed)
+        obs, _ = self.env.reset(seed=self.seed, initial_state=self.env_initial_state)
         frames.append(self.env.render(verbose))
         while True:
             inputs = self.env.process_observation(obs)
@@ -648,7 +658,7 @@ class EvoSwarmExperiment:
         print(f"Number of blocks: {self.env.n_blocks}")
         print(f"Seed: {self.seed}")
         
-        self.env.reset(seed=self.seed)
+        self.env.reset(seed=self.seed, initial_state=self.env_initial_state)
         self.env.render() # Show the environment
 
         if self.evolutionary_algorithm == "neat":

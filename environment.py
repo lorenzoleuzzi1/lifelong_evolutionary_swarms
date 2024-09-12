@@ -51,7 +51,7 @@ ROTATE_POSITIVE = [1.57079633, 1.57079633, 1.57079633]
 ROTATE_NEGATIVE = [3.14159265, 3.14159265, 3.14159265]
 
 # TODO: check for more speed optimization in the code
-
+# TODO: specify the number of colors available in the environment
 class SwarmForagingEnv(gym.Env):
     """
     Environment for swarm foraging task.
@@ -119,7 +119,9 @@ class SwarmForagingEnv(gym.Env):
             time_step = TIME_STEP, # in seconds
             duration = 500, # max number of steps for an episode
             max_retrieves = 20, # max number of retrives for an episode
-            distribution = "uniform" # blocks colors distribution
+            distribution = "uniform", # blocks colors distribution
+            repositioning = True, # reposition blocks after each retrieve
+            efficency_reward = False # reward for efficency (if task is completed before max steps)
             ):
         
         self.nest = UP # The nest location (UP, DOWN, LEFT, RIGHT) TODO: maybe as parameter?
@@ -143,6 +145,8 @@ class SwarmForagingEnv(gym.Env):
         self._blocks_picked_up = np.full(self.n_blocks, -1, dtype=int)
         self.rate_target_block = 0.5
         self.distribution = distribution
+        self.repositioning = repositioning
+        self.efficency_reward = efficency_reward
 
         self._distance_matrix_agent_agent = np.zeros((self.n_agents, self.n_blocks), dtype=float)
         self._direction_matrix_agent_agent = np.zeros((self.n_agents, self.n_blocks), dtype=float)
@@ -195,11 +199,14 @@ class SwarmForagingEnv(gym.Env):
         self.observation_space = spaces.Tuple([single_observation_space for _ in range(self.n_agents)])
     
     def _reposition_block(self, j):
-        self.blocks_location[j] = np.random.randint((5, 1), 
+        if self.repositioning:
+            self.blocks_location[j] = np.random.randint((5, 1), 
                                                     (SIMULATION_ARENA_SIZE - 2, SIMULATION_ARENA_SIZE - 2), 
                                                     2)
+        else:
+            self.blocks_location[j] = [np.inf, np.inf]
     
-    def create_initial_setting(self):
+    def create_initial_state(self):
         # Blocks
         if self.distribution == "uniform":
             blocks_locations = np.zeros((self.n_blocks, 2), dtype=float)
@@ -331,7 +338,7 @@ class SwarmForagingEnv(gym.Env):
             obs.append({"neighbors" : self._neighbors[i], "heading": self.agents_heading[i], "carrying" : carrying})
         return obs
     
-    def reset(self, seed=None):
+    def reset(self, seed=None, initial_state=None):
         np.random.seed(seed=seed)
                 
         self._agents_carrying = np.full(self.n_agents, -1, dtype=int)
@@ -339,11 +346,17 @@ class SwarmForagingEnv(gym.Env):
         self._neighbors = np.zeros((self.n_agents, self.n_neighbors, 3), dtype=float)
         self._previous_neighbors = np.zeros((self.n_agents, self.n_neighbors, 3), dtype=float)
         
-        initial_setting = self.create_initial_setting()
-        self.agents_location = initial_setting['agents'].copy()
-        self.agents_heading = initial_setting['headings'].copy()
-        self.blocks_location = initial_setting['blocks'].copy()
-        self.blocks_color = initial_setting['colors'].copy()
+        if initial_state is None:
+            initial_state = self.create_initial_state()
+            self.agents_location = initial_state['agents'].copy()
+            self.agents_heading = initial_state['headings'].copy()
+            self.blocks_location = initial_state['blocks'].copy()
+            self.blocks_color = initial_state['colors'].copy()
+        else:
+            self.agents_location = initial_state['agents'].copy()
+            self.agents_heading = initial_state['headings'].copy()
+            self.blocks_location = initial_state['blocks'].copy()
+            self.blocks_color = initial_state['colors'].copy()
                                                                                                        
         self.current_step = 0
         
@@ -363,7 +376,7 @@ class SwarmForagingEnv(gym.Env):
         
         self._rewards = np.zeros(self.n_agents)
         
-        # # Automatic collision avoidance
+        # # Automatic collision avoidance # TODO: if I really want to implement it has to be deterministic ispiration from real DOTS
         # colliding_agents = np.argwhere(self._distance_matrix_agent_agent < self.sensitivity)
         # colliding_agents = colliding_agents[colliding_agents[:, 0] < colliding_agents[:, 1]] # Filter out self-collisions and duplicate pairs
         # colliding_agents = np.unique(colliding_agents.flatten()) # Flatten the array to get a list of unique indices of agents involved in collisions
@@ -442,6 +455,8 @@ class SwarmForagingEnv(gym.Env):
         if len(self._correct_retrieves) >= self.max_retrieves:
             print("Max retrieves reached") 
             done = True
+            if self.efficency_reward:
+                reward += self.duration - self.current_step
         truncated = False
         if self.current_step >= self.duration: 
             truncated = True
