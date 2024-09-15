@@ -1,4 +1,4 @@
-from experiment import EvoSwarmExperiment, EVOLUTIONARY_ALGORITHMS
+from experiment import LifelongEvoSwarmExperiment, EVOLUTIONARY_ALGORITHMS
 from environment import SwarmForagingEnv, BLUE, RED
 from neural_controller import NeuralController
 import argparse
@@ -44,7 +44,7 @@ def main(name,
     initial_setting_bristol['headings'] = np.array([180, 180, 180])
     config_path_neat = "config-feedforward.txt"
     
-    experiment = EvoSwarmExperiment(env = env, name = name, evolutionary_algorithm="neat", 
+    experiment = LifelongEvoSwarmExperiment(env = env, name = name, evolutionary_algorithm="neat", 
                                     population_size=population_size, 
                                     config_path_neat=config_path_neat, 
                                     reg_lambdas=lambdas,
@@ -55,13 +55,13 @@ def main(name,
     
     # From red to blue
     initial_setting_bristol['colors'] = np.array([4, 4, 3, 5, 4, 3, 5])
-    experiment.change_objective(drifts[1], initial_setting_bristol)
+    experiment.drift(drifts[1], initial_setting_bristol)
     experiment.run(generations, n_workers = workers,
                     eval_retaining = eval_retaining, 
                     regularization_retaining = regularization)
     
     initial_setting_bristol['colors'] = np.array([3, 3, 5, 4, 3, 5, 4])
-    experiment.change_objective(drifts[2], initial_setting_bristol)
+    experiment.drift(drifts[2], initial_setting_bristol)
     experiment.run(generations, n_workers = workers,
                     eval_retaining = eval_retaining, 
                     regularization_retaining = regularization)

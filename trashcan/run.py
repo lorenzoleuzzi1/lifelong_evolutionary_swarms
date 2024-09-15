@@ -1,4 +1,4 @@
-from experiment import EvoSwarmExperiment, EVOLUTIONARY_ALGORITHMS
+from experiment import LifelongEvoSwarmExperiment, EVOLUTIONARY_ALGORITHMS
 from environment import SwarmForagingEnv, BLUE, RED
 from neural_controller import NeuralController
 import argparse
@@ -26,7 +26,7 @@ def main(name,
         layer_sizes = [input_dim] + hidden_units + [output_dim]
         controller_deap = NeuralController(layer_sizes, hidden_activation="neat_sigmoid", output_activation="neat_sigmoid")
 
-    experiment = EvoSwarmExperiment(env = env, name = name, evolutionary_algorithm=script, population_size=population_size, 
+    experiment = LifelongEvoSwarmExperiment(env = env, name = name, evolutionary_algorithm=script, population_size=population_size, 
                                     controller_deap=controller_deap, config_path_neat=config_path_neat, seed = seed)
     experiment.run(generations)
 

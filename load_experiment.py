@@ -1,6 +1,7 @@
-from experiment import EvoSwarmExperiment
+from experiment import LifelongEvoSwarmExperiment
+
 def main(path):
-    e = EvoSwarmExperiment()
+    e = LifelongEvoSwarmExperiment()
     e.load(path)
     e.run_best(on_prev_env = "top")
     e.run_best(on_prev_env = "find_best")

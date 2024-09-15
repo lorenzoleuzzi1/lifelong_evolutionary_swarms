@@ -387,3 +387,240 @@ if self.nest == UP:
         # else:
         #     regularization_str = ""
         #     lambdas_str = ""
+
+
+
+
+
+
+        # Regular expression pattern to match the desired part
+    # pattern = r"^(?!.*drift).*$"
+
+    # # Set to store unique parts of the filenames
+    # unique_parts = set()
+
+    # # Iterate through all files in the specified directory
+    # for filename in os.listdir(results_path):
+    #     # Check if the filename matches the pattern
+    #     match = re.match(pattern, filename)
+    #     if match:
+    #         # If there's a match, add it to the set
+    #         unique_parts.add(match.group()[:-2]) # remove the seed TODO: if seed is longer that 1 digit dont work
+
+    # # Convert the set to a sorted list
+    # exps = sorted(list(unique_parts))
+
+    # # Print the result
+    # print(exps)
+
+    # exps = ["baselinefrgd3_neat_500_500_50_3_7_b", "baselinefrgd3_neat_500_500_50_3_7_u"]
+    # path = "/Users/lorenzoleuzzi/Library/CloudStorage/OneDrive-UniversityofPisa/lifelong\ evolutionary\ swarms/results" 
+    # path = "results"
+
+
+
+
+
+
+
+
+
+        # drift_str = ""
+        # for i, task in enumerate(tasks):
+        #     experiments = []
+        #     if i != 0:
+        #         drift_str = drift_str + f"_drift{tasks[i-1]}{tasks[i]}"
+        #     for seed in seeds:
+        #         if i == 0:
+        #             experiments.append(f"{path}/{name}_{seed}")
+        #         else:
+        #             experiments.append(f"{path}/{name}_{seed}{drift_str}")
+        #     experiments_list.append(experiments)
+        
+        # plot_evolutions_and_drifts(experiments_list, tasks, name)
+    
+    
+    # experiments_list = [[
+    #     f"{results_path}/gdcoarse5_neat_800_100_100_5_30_u_1",
+    #     # f"{results_path}/bristol/bristol2gd3_neat_500_50_300_3_7_u_0",
+    #     # f"{results_path}/bristol/bristol3gd3_neat_500_50_300_3_7_u_0"
+    #     # f"{results_path}/bristol/gd_3seed3gd3_neat_500_50_300_3_7_u_3",
+    #     # f"{results_path}/bristol/gd_3seed4gd3_neat_500_50_300_3_7_u_3",
+    #     # f"{results_path}/bristol/gd_3seed5gd3_neat_500_50_300_3_7_u_3",
+    #     # f"{results_path}/bristol/gd_3seed6gd3_neat_500_50_300_3_7_u_3",
+    #     # f"{results_path}/bristol/gd_3seed7gd3_neat_500_50_300_3_7_u_3",
+    #     # f"{results_path}/bristol/gd_3seed8gd3_neat_500_50_300_3_7_u_3",
+    #     # f"{results_path}/bristol/gd_3seed9gd3_neat_500_50_300_3_7_u_3"
+    # ],
+    #     [
+    #     f"{results_path}/gdcoarse21_neat_800_100_100_5_30_u_1_drift34",
+    #     # f"{results_path}/bristol/bristol2gd3_neat_500_50_300_3_7_u_0_drift34",
+    #     # f"{results_path}/bristol/bristol3gd3_neat_500_50_300_3_7_u_0_drift34"
+    #     # f"{results_path}/bristol/gd_3seed3gd3_neat_500_50_300_3_7_u_0_drift34",
+    #     # f"{results_path}/bristol/gd_3seed4gd3_neat_500_50_300_3_7_u_0_drift34",
+    #     # f"{results_path}/bristol/gd_3seed5gd3_neat_500_50_300_3_7_u_0_drift34",
+    #     # f"{results_path}/bristol/gd_3seed6gd3_neat_500_50_300_3_7_u_0_drift34",
+    #     # f"{results_path}/bristol/gd_3seed7gd3_neat_500_50_300_3_7_u_0_drift34",
+    #     # f"{results_path}/bristol/gd_3seed8gd3_neat_500_50_300_3_7_u_0_drift34",
+    #     # f"{results_path}/bristol/gd_3seed9gd3_neat_500_50_300_3_7_u_0_drift34"
+    # ],
+    # [
+    #     f"{results_path}/gdcoarse5_neat_800_100_100_5_30_u_5_drift34_drift43",
+    #     # f"{results_path}/bristol/bristol2gd3_neat_500_50_300_3_7_u_0_drift34_drift43",
+    #     # f"{results_path}/bristol/bristol3gd3_neat_500_50_300_3_7_u_0_drift34_drift43"
+    #     # f"{results_path}/bristol/gd_3seed3gd3_neat_500_50_300_3_7_u_0_drift34_drift43",
+    #     # f"{results_path}/bristol/gd_3seed4gd3_neat_500_50_300_3_7_u_0_drift34_drift43",
+    #     # f"{results_path}/bristol/gd_3seed5gd3_neat_500_50_300_3_7_u_0_drift34_drift43",
+    #     # f"{results_path}/bristol/gd_3seed6gd3_neat_500_50_300_3_7_u_0_drift34_drift43",
+    #     # f"{results_path}/bristol/gd_3seed7gd3_neat_500_50_300_3_7_u_0_drift34_drift43",
+    #     # f"{results_path}/bristol/gd_3seed8gd3_neat_500_50_300_3_7_u_0_drift34_drift43",
+    #     # f"{results_path}/bristol/gd_3seed9gd3_neat_500_50_300_3_7_u_0_drift34_drift43"
+    # ]      
+    # ]
+              
+
+
+
+
+
+              # PLOTTING
+
+    # baf = np.array(baf).flatten()
+    # print(f"Best Anytime Fitness: {np.mean(baf)}")
+    # print(f"Average End Evolution Fitness: {np.mean(beef)}")
+    # for i in range(len(best_instances)):
+    #     print(f"Best seed for evo {i} at {best_instances[i]}") 
+    
+    # raf = np.array(raf).flatten()
+    # print(f"Average Retaining End Evolution Fitness: {np.mean(reef)}")
+    # for i in range(len(best_retention_instances)):
+    #     print(f"Best seed for retention evo {i} at {best_retention_instances[i]}")
+
+
+
+
+    
+            
+
+    # best_instances = []
+    # best_retention_instances = []
+    # best_instances_fitness = []
+    # best_retention_instances_fitness = []
+
+    # plotted_bests = []
+    # plotted_retentions = []
+
+
+    # for i, drift in enumerate(drifts):
+        
+
+    #     # Iterate thru the drifts
+    #     log_drift = []
+    #     experiment_info_drift = []
+    #     baf_drift = []
+    #     beef_drift = []
+    #     raf_drift = []
+    #     reef_drift = []
+    #     # ----- LOAD INFO & LOG -----
+    #     for j in range(n_seeds):
+    #         # Iterates thru the experiments instances (seeds)
+    #         log = load_logbook_json(drifts[drift][j])
+    #         log_drift.append(log)
+    #         experiment_info = load_experiment_json(drifts[drift][j])
+    #         experiment_info_drift.append(experiment_info)
+
+    #         if j != 0:
+    #             if check_generations != experiment_info["generations"]:
+    #                 raise ValueError(f"Duration mismatch: {check_generations} != {experiment_info["generations"]}. 
+    #                                  Experiment must have the same number of generations.")
+    #         check_generations= experiment_info["generations"]
+
+    #         # Metrics
+    #     # ---------------------------
+
+    #     current_gen = counter_gens
+    #     counter_gens += len(log_drift[0]["best"])
+
+    #     # ----- RETENTION -----
+    #     if i != 0:
+    #         type_of_retention = experiment_info_drift[0]["type_of_retention"]
+
+    #         prev_task = task
+    #         prev_color = tasks_plot_color_map[prev_task]
+            
+    #         raf = [log["retention"] for log in log_drift]
+    #         retention_curve = [log["retention"] for log in log_drift]
+    #         raf.append(np.mean(retention_curve, axis=0))
+    #         # avg_retention = np.mean(retention, axis=0)
+
+    #         # best_retention_instances.append(np.argmax([experiment_info[f"best_fitness_retention_{type_of_retention}"] for experiment_info in experiment_info_drift]))
+    #         # best_retention_instances_fitness.append(np.max([experiment_info[f"best_fitness_retention_{type_of_retention}"] for experiment_info in experiment_info_drift]))
+            
+    #         # TODO: not needed if retention is same of the plot, also can be retaing find bests
+    #         # retention_end = [experiment_info[f"best_fitness_retention_{type_of_retention}"] for experiment_info in experiment_info_drift]
+    #         # avg_retention_end = np.mean(retention_end)
+            
+    #         # raf.extend(avg_retention)
+    #         # reef.append(avg_retention_end)
+            
+    #         # Range from current to counter_gens but every 10 gens
+    #         range_retention = np.arange(current_gen, counter_gens, 10) 
+            
+    #         # Plot drifts lines
+    #         if i == 1:
+    #             plt.axvline(x=current_gen, linestyle = '--', color='grey', label=f"Drift")
+    #         else:    
+    #             plt.axvline(x=current_gen, linestyle = '--', color='grey')
+            
+    #         if prev_color not in plotted_retentions:
+    #             plt.plot(range_retention, avg_retention, linestyle='-.', label=f"Retention {type_of_retention} ({prev_color})", color=prev_color)
+    #             plotted_retentions.append(prev_color)
+    #         else:
+    #             plt.plot(range_retention, avg_retention, linestyle='-.', color=prev_color)
+            
+    #         for retention in retention:
+    #             plt.plot(range_retention, retention, linestyle='-.', color=prev_color, alpha=0.2)
+
+        
+    #         # Forgetting
+    #         forgetting = best_end - retention_end
+    #         avg_forgetting.append(np.mean(forgetting))
+
+    #     # ---------------------
+
+    #     # ----- BEST -----
+    #     task = int(drift[-1])
+    #     current_color = tasks_plot_color_map[task]
+        
+    #     bests = []
+        
+    #     # Use the not penalized fitness when applying regularization
+    #     for log in log_drift:
+    #         no_penalty = log.get("no_penalty", [])
+    #         if no_penalty == []:
+    #             bests.append(log["best"]) 
+    #         else:
+    #             bests.append(no_penalty)
+                
+    #     avg_bests = np.mean(bests, axis=0)
+    #     baf.extend(avg_bests)
+        
+    #     best_end = [experiment_info["best_fitness"] for experiment_info in experiment_info_drift]
+    #     beef.append(np.mean(best_end))
+        
+    #     best_instances.append(np.argmax([experiment_info["best_fitness"] for experiment_info in experiment_info_drift]))
+    #     best_instances_fitness.append(np.max([experiment_info["best_fitness"] for experiment_info in experiment_info_drift]))
+
+        
+    #     # Plot best
+    #     # Check if the task was already plotted
+    #     if current_color not in plotted_bests:
+    #         plt.plot(range(current_gen, counter_gens), avg_bests, color=current_color, label=f"Best ({current_color})")
+    #         plotted_bests.append(current_color)
+    #     else:
+    #         plt.plot(range(current_gen, counter_gens), avg_bests, color=current_color)
+
+    #     for best in bests:
+    #         plt.plot(range(current_gen, counter_gens), best, color=current_color, alpha=0.2)
+        
+        # ---------------- 

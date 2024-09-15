@@ -23,7 +23,7 @@ DEAP_ALGORITHMS = ['cma-es', 'ga', 'evostick']
 # TODO: create two separate classes and use checkpoints
 # TODO: base class, DEAP class, NEAT class
 # TODO: onlt NEAT handles drifts
-class EvoSwarmExperiment:
+class LifelongEvoSwarmExperiment:
 
     def __init__(self,
                 evolutionary_algorithm : str = None,
@@ -52,7 +52,6 @@ class EvoSwarmExperiment:
         self.experiment_name = None
         self.best_individual = None
         self.time_elapsed = None
-        self.toolbox_deap = None
         self.population = None
         if env is not None:
             self.target_color = env.target_color
@@ -62,12 +61,13 @@ class EvoSwarmExperiment:
 
         # they are set when calling run method TODO: maybe init?? n_workers yes but the other no bc the change between runs
         self.n_workers = n_workers
-        self.eval_retaining = None
-        self.regularization_retaining = None
-        self.fitness_retaining = []
+        self.eval_retention = None
+        self.regularization_retention = None
+        self.fitness_retention = []
         self.fitness_no_penalty = []
     
     def load(self, folder_path):
+        # TODO: fix
         # self.experiment_name = folder_path.split("/")[-1]
         # Load env 
         with open(folder_path + '/env.pkl', 'rb') as f:
@@ -103,18 +103,19 @@ class EvoSwarmExperiment:
         elif self.evolutionary_algorithm in DEAP_ALGORITHMS:
             with open(folder_path + '/controller.pkl', 'rb') as f:
                 self.controller_deap = pickle.load(f)
-            with open(folder_path + '/toolbox.pkl', 'rb') as f:
-                self.toolbox_deap = pickle.load(f)
     
     # TODO: objective, target... choose one
-    def change_objective(self, objective, env_initial_state = None):
-        self.fitness_retaining = []
-        self.fitness_no_penalty = []
-        self.experiment_name = f"{self.experiment_name}_drift{self.target_color}{objective}"
-        self.prev_target_color = self.target_color
-        self.target_color = objective
+    def drift(self, new_target, env_initial_state = None):
+        if self.evolutionary_algorithm != "neat":
+            raise ValueError(f"Drifts are implemented only for NEAT. Got {self.evolutionary_algorithm}.")
         
-        self.env.target_color = objective
+        self.fitness_retention = []
+        self.fitness_no_penalty = []
+        self.experiment_name = f"{self.experiment_name}_drift{self.target_color}{new_target}"
+        self.prev_target_color = self.target_color
+        self.target_color = new_target
+        
+        self.env.target_color = new_target
 
         if env_initial_state is not None:
             self.env_initial_state = env_initial_state
@@ -188,14 +189,14 @@ class EvoSwarmExperiment:
             # -------------------------------
         
         # ----- REGULARIZATION -----
-        if self.regularization_retaining is not None and self.best_individual is not None:
+        if self.regularization_retention is not None and self.best_individual is not None:
             # Save max fitness without penalty
             self.fitness_no_penalty.append(max([genome.fitness for _, genome in genomes]))
             
             for _, genome in genomes:
                 
                 # Genetic distance penalty
-                if self.regularization_retaining == "gd" or self.regularization_retaining == "genetic_distance":
+                if self.regularization_retention == "gd" or self.regularization_retention == "genetic_distance":
                     penalty_distance = 0.0
                     config.compatibility_weight_coefficient = 0.6
                     config.compatibility_disjoint_coefficient = 1.0
@@ -204,7 +205,7 @@ class EvoSwarmExperiment:
                     reg_penalty = self.reg_lambdas.get('gd') * penalty_distance
                 
                 # Weight protection penalty
-                if self.regularization_retaining == "wp" or self.regularization_retaining == "weight_protection":
+                if self.regularization_retention == "wp" or self.regularization_retention == "weight_protection":
                     penalty_wp1 = 0.0
                     penalty_wp2 = 0.0
                     for c in genome.connections:
@@ -219,18 +220,18 @@ class EvoSwarmExperiment:
         # ---------------------------
         
         # ----- EVALUATE RETAINING -----
-        if self.eval_retaining is not None and self.prev_target_color is not None:
+        if self.eval_retention is not None and self.prev_target_color is not None:
             # Evaluate genomes on the previous task
             if self.current_generation % 10 == 0: # Evaluate every 10 generations, TODO: make it parameter
                 self.env.target_color = self.prev_target_color
                 eval_genomes = copy.deepcopy(genomes)
                 
-                if self.eval_retaining == "top":
+                if self.eval_retention == "top":
                     # Take top 3% genomes 
                     eval_genomes.sort(key=lambda x: x[1].fitness, reverse=True)
                     eval_genomes = [eval_genomes[0]]
                 
-                if self.eval_retaining == "random": # TODO: remove random
+                if self.eval_retention == "random": # TODO: remove random
                     # Random choose eval genomes 10% of the population
                     eval_genomes = random.sample(eval_genomes, int(len(eval_genomes) * 0.1))         
                 
@@ -251,14 +252,14 @@ class EvoSwarmExperiment:
                         if done or truncated:
                             break
                     
-                if self.eval_retaining == "population":
+                if self.eval_retention == "population":
                     eval_genomes.sort(key=lambda x: x[1].fitness, reverse=True)
-                    retaining = eval_genomes[0][1].fitness
+                    retention = eval_genomes[0][1].fitness
                 else:
-                    # Calculate the average fitness of the eval retaining genomes
-                    retaining = sum([genome.fitness for _, genome in eval_genomes]) / len(eval_genomes)
-                print(f"Retaining: {retaining}")
-                self.fitness_retaining.append(retaining)
+                    # Calculate the average fitness of the eval retention genomes
+                    retention = sum([genome.fitness for _, genome in eval_genomes]) / len(eval_genomes)
+                print(f"Retaining: {retention}")
+                self.fitness_retention.append(retention)
         # -------------------------------
 
         self.current_generation += 1
@@ -310,22 +311,21 @@ class EvoSwarmExperiment:
         if self.controller_deap is None:
             raise ValueError("DEAP controller is not set. Set the controller first.")
         
-        if self.toolbox_deap is None:
-            # Set up the fitness and individual
-            creator.create("FitnessMax", base.Fitness, weights=(1.0,))  # Maximization problem
-            creator.create("Individual", list, fitness=creator.FitnessMax)
-            self.toolbox_deap = base.Toolbox()
-            self.toolbox_deap.register("evaluate", self._calculate_fitness_deap)  # Evaluation function
-            self.toolbox_deap.register("attr_float", random.uniform, -1.0, 1.0)  # Attribute generator
-            self.toolbox_deap.register("individual", tools.initRepeat, creator.Individual,
-                            self.toolbox_deap.attr_float, n=self.controller_deap.total_weights)  # Individual generator
-            self.toolbox_deap.register("population", tools.initRepeat, list, self.toolbox_deap.individual)
-            self.toolbox_deap.register("select", tools.selTournament, tournsize=int(self.population_size*0.03))  # Selection function
-            # toolbox.register("select", selElitistAndTournament)  # Selection function
-            self.toolbox_deap.register("mate", tools.cxTwoPoint)  # Crossover function
-            # toolbox.register("mate", tools.cxOnePoint)  # Crossover function
-            # toolbox.register("mate", tools.cxUniform, indpb=0.5)  # 50% chance for each weight
-            self.toolbox_deap.register("mutate", tools.mutGaussian, mu=0, sigma=1, indpb=0.1)  # Mutation function
+        # Set up the fitness and individual
+        creator.create("FitnessMax", base.Fitness, weights=(1.0,))  # Maximization problem
+        creator.create("Individual", list, fitness=creator.FitnessMax)
+        toolbox_deap = base.Toolbox()
+        toolbox_deap.register("evaluate", self._calculate_fitness_deap)  # Evaluation function
+        toolbox_deap.register("attr_float", random.uniform, -1.0, 1.0)  # Attribute generator
+        toolbox_deap.register("individual", tools.initRepeat, creator.Individual,
+                        toolbox_deap.attr_float, n=self.controller_deap.total_weights)  # Individual generator
+        toolbox_deap.register("population", tools.initRepeat, list, toolbox_deap.individual)
+        toolbox_deap.register("select", tools.selTournament, tournsize=int(self.population_size*0.03))  # Selection function
+        # toolbox.register("select", selElitistAndTournament)  # Selection function
+        toolbox_deap.register("mate", tools.cxTwoPoint)  # Crossover function
+        # toolbox.register("mate", tools.cxOnePoint)  # Crossover function
+        # toolbox.register("mate", tools.cxUniform, indpb=0.5)  # 50% chance for each weight
+        toolbox_deap.register("mutate", tools.mutGaussian, mu=0, sigma=1, indpb=0.1)  # Mutation function
 
         stats = tools.Statistics(lambda ind: ind.fitness.values)
         stats.register("best", np.max)
@@ -334,15 +334,14 @@ class EvoSwarmExperiment:
         stats.register("std", np.std)
         stats.register("worst", np.min)
         
-        if self.population is None:
-            self.population = self.toolbox_deap.population(n=self.population_size)  # Create a new population 
+        self.population = toolbox_deap.population(n=self.population_size)  # Create a new population 
         
         n_elite = int(0.05 * self.population_size) # 5% of the population will be copied to the next generation (elitism)
         hof = tools.HallOfFame(n_elite)  # Hall of fame to store the best individual
 
         start = time.time()
         # Run the genetic algorithm
-        self.population, log = algorithms.eaSimple(self.population, self.toolbox_deap, cxpb=0.8, mutpb=0.01,
+        self.population, log = algorithms.eaSimple(self.population, toolbox_deap, cxpb=0.8, mutpb=0.01,
                                                     ngen=generations, stats=stats, halloffame=hof, verbose=True)
         # self.population, log = eaSimpleWithElitism(self.population, self.toolbox_deap, cxpb=0.8, mutpb=0.1, 
         #                                            ngen=generations, stats=stats, halloffame=hof, verbose=True)
@@ -356,15 +355,14 @@ class EvoSwarmExperiment:
         if self.controller_deap is None:
             raise ValueError("DEAP controller is not set. Set the controller first.")
         
-        if self.toolbox_deap is None:
-            creator.create("FitnessMax", base.Fitness, weights=(1.0,))  # Maximization problem
-            creator.create("Individual", list, fitness=creator.FitnessMax)
-            self.toolbox_deap = base.Toolbox()
-            self.toolbox_deap.register("evaluate", self._calculate_fitness_deap)
-            # Strategy parameters for CMA-ES
-            strategy = cma.Strategy(centroid=[0.0]*self.controller_deap.total_weights, sigma=5.0, lambda_=self.population_size)
-            self.toolbox_deap.register("generate", strategy.generate, creator.Individual)
-            self.toolbox_deap.register("update", strategy.update)
+        creator.create("FitnessMax", base.Fitness, weights=(1.0,))  # Maximization problem
+        creator.create("Individual", list, fitness=creator.FitnessMax)
+        toolbox_deap = base.Toolbox()
+        toolbox_deap.register("evaluate", self._calculate_fitness_deap)
+        # Strategy parameters for CMA-ES
+        strategy = cma.Strategy(centroid=[0.0]*self.controller_deap.total_weights, sigma=5.0, lambda_=self.population_size)
+        toolbox_deap.register("generate", strategy.generate, creator.Individual)
+        toolbox_deap.register("update", strategy.update)
 
         stats = tools.Statistics(lambda ind: ind.fitness.values)
         stats.register("best", np.max)
@@ -376,7 +374,7 @@ class EvoSwarmExperiment:
         hof = tools.HallOfFame(2)
         
         start = time.time()
-        self.population, log = algorithms.eaGenerateUpdate(self.toolbox_deap, ngen=generations, stats=stats, halloffame=hof)
+        self.population, log = algorithms.eaGenerateUpdate(toolbox_deap, ngen=generations, stats=stats, halloffame=hof)
         end = time.time()
         
         self.best_individual = hof[0]
@@ -388,18 +386,18 @@ class EvoSwarmExperiment:
             raise ValueError("DEAP controller is not set. Set the controller first.")
         
         n_elite = int(0.2 * self.population_size) # 20% of the population will be copied to the next generation (elitism)
-        if self.toolbox_deap is None:
-            creator.create("FitnessMax", base.Fitness, weights=(1.0,))  # Maximization problem
-            creator.create("Individual", list, fitness=creator.FitnessMax)
-            self.toolbox_deap = base.Toolbox()
-            self.toolbox_deap.register("evaluate", self._calculate_fitness_deap)  # Evaluation function
-            self.toolbox_deap.register("attr_float", random.uniform, -1.0, 1.0)  # Attribute generator
-            self.toolbox_deap.register("individual", tools.initRepeat, creator.Individual,
-                            self.toolbox_deap.attr_float, n=self.controller_deap.total_weights)  # Individual generator
-            self.toolbox_deap.register("population", tools.initRepeat, list, self.toolbox_deap.individual)
-            self.toolbox_deap.register("select", tools.selBest, k=n_elite)  # Select top 20 individuals
-            self.toolbox_deap.register("mutate", tools.mutGaussian, mu=0, sigma=1, indpb=1.0)
-            self.toolbox_deap.register("map", map)
+
+        creator.create("FitnessMax", base.Fitness, weights=(1.0,))  # Maximization problem
+        creator.create("Individual", list, fitness=creator.FitnessMax)
+        toolbox_deap = base.Toolbox()
+        toolbox_deap.register("evaluate", self._calculate_fitness_deap)  # Evaluation function
+        toolbox_deap.register("attr_float", random.uniform, -1.0, 1.0)  # Attribute generator
+        toolbox_deap.register("individual", tools.initRepeat, creator.Individual,
+                        toolbox_deap.attr_float, n=self.controller_deap.total_weights)  # Individual generator
+        toolbox_deap.register("population", tools.initRepeat, list, toolbox_deap.individual)
+        toolbox_deap.register("select", tools.selBest, k=n_elite)  # Select top 20 individuals
+        toolbox_deap.register("mutate", tools.mutGaussian, mu=0, sigma=1, indpb=1.0)
+        toolbox_deap.register("map", map)
 
         stats = tools.Statistics(lambda ind: ind.fitness.values) # Statistics to keep track of the evolution
         stats.register("best", np.max)
@@ -409,13 +407,13 @@ class EvoSwarmExperiment:
         stats.register("worst", np.min)
 
         if self.population is None:
-            self.population = self.toolbox_deap.population(n=self.population_size)  # Create a new population 
+            self.population = toolbox_deap.population(n=self.population_size)  # Create a new population 
         
         hof = tools.HallOfFame(n_elite)  # Hall of fame to store the best individual
 
         start = time.time()
         # Run the genetic algorithm
-        self.population, log = eaEvoStick(self.population, self.toolbox_deap, generations, stats=stats, halloffame=hof, verbose=True)
+        self.population, log = eaEvoStick(self.population, toolbox_deap, generations, stats=stats, halloffame=hof, verbose=True)
         end = time.time()
 
         self.best_individual = hof[0]
@@ -424,6 +422,7 @@ class EvoSwarmExperiment:
 
     def run_best(self, on_prev_env = None, save = True, verbose = False):
         # TODO: make it prettier
+        # TODO: check all this
         if self.best_individual is None:
             raise ValueError("Best individual is not set. Set it or tun the evolutionary algorithm first.")
         if self.env is None:
@@ -432,8 +431,8 @@ class EvoSwarmExperiment:
             raise ValueError("Previous target color is not set. Set it first.")
         if on_prev_env is not None and self.population is None:
             raise ValueError("Population is not set. Set it first.")
-        if on_prev_env is not None and on_prev_env not in ["random", "top", "population"]:
-            raise ValueError("On previous environment must be one of: random, top, population")
+        if on_prev_env is not None and on_prev_env not in ["top", "population"]:
+            raise ValueError("On previous environment must be one of: top, population")
         
         # Set up the neural network controller
         if self.evolutionary_algorithm == 'neat':
@@ -457,10 +456,10 @@ class EvoSwarmExperiment:
             # Evaluate genomes on the previous task
             genomes = copy.deepcopy(self.population)
             
-            if self.eval_retaining == "random":
+            if self.eval_retention == "random":
                 genome_run = random.sample(genomes, 1)      
             
-            if self.eval_retaining == "population":
+            if self.eval_retention == "population":
                 
                 # Find the best genome on the previous task
                 for _, genome in genomes:
@@ -512,7 +511,7 @@ class EvoSwarmExperiment:
         print(f"Total reward: {total_reward}")
         if save:
             if on_prev_env is not None:
-                imageio.mimsave(f"results/{self.experiment_name}/episode_retaining_{on_prev_env}.gif", frames, fps = 60)
+                imageio.mimsave(f"results/{self.experiment_name}/episode_retention_{on_prev_env}.gif", frames, fps = 60)
             else:
                 imageio.mimsave(f"results/{self.experiment_name}/episode.gif", frames, fps = 60)
         
@@ -537,20 +536,21 @@ class EvoSwarmExperiment:
                 stds.append(stat['std'])
                 medians.append(stat['median'])
         
+        # TODO: check this and maybe change
         plot_evolution(bests, avgs = avgs, medians = medians, 
                        filename = f"results/{self.experiment_name}/evolution_plot.png")
         
         
         total_reward, info = self.run_best(save = True)
         
-        if self.eval_retaining is not None or self.prev_target_color is not None:
-            total_reward_retaining_top, info_retaining_top = self.run_best(on_prev_env = "top", save = True)
-            total_reward_retaining_population, info_retaining_population = self.run_best(on_prev_env = "population", save = True)
+        if self.eval_retention is not None or self.prev_target_color is not None:
+            total_reward_retention_top, info_retention_top = self.run_best(on_prev_env = "top", save = True)
+            total_reward_retention_population, info_retention_population = self.run_best(on_prev_env = "population", save = True)
         else:
-            total_reward_retaining_top = None
-            info_retaining_top = None
-            total_reward_retaining_population = None
-            info_retaining_population = None
+            total_reward_retention_top = None
+            info_retention_top = None
+            total_reward_retention_population = None
+            info_retention_population = None
 
         # Stats
         logbook = {
@@ -558,7 +558,7 @@ class EvoSwarmExperiment:
             "avg": avgs,
             "median": medians,
             "std": stds,
-            "retaining": self.fitness_retaining,
+            "retention": self.fitness_retention,
             "no_penalty": self.fitness_no_penalty,
         }
         # Experiment info
@@ -578,16 +578,16 @@ class EvoSwarmExperiment:
             "info": info,
             "correct_retrieves": len(info["correct_retrieves"]),
             "wrong_retrieves": len(info["wrong_retrieves"]),
-            "best_fitness_retaining_top": total_reward_retaining_top,
-            "info_retaining_top": info_retaining_top,
-            "correct_retrieves_retaining_top": len(info_retaining_top["correct_retrieves"]) if info_retaining_top is not None else None,
-            "wrong_retrieves_retaining_top": len(info_retaining_top["wrong_retrieves"]) if info_retaining_top is not None else None,
-            "best_fitness_retaining_population": total_reward_retaining_population,
-            "info_retaining_population": info_retaining_population,
-            "correct_retrieves_retaining_population": len(info_retaining_population["correct_retrieves"]) if info_retaining_population is not None else None,
-            "wrong_retrieves_retaining_population": len(info_retaining_population["wrong_retrieves"]) if info_retaining_population is not None else None,
-            "type_of_retaining": self.eval_retaining,
-            "regularization": self.regularization_retaining,
+            "best_fitness_retention_top": total_reward_retention_top,
+            "info_retention_top": info_retention_top,
+            "correct_retrieves_retention_top": len(info_retention_top["correct_retrieves"]) if info_retention_top is not None else None,
+            "wrong_retrieves_retention_top": len(info_retention_top["wrong_retrieves"]) if info_retention_top is not None else None,
+            "best_fitness_retention_population": total_reward_retention_population,
+            "info_retention_population": info_retention_population,
+            "correct_retrieves_retention_population": len(info_retention_population["correct_retrieves"]) if info_retention_population is not None else None,
+            "wrong_retrieves_retention_population": len(info_retention_population["wrong_retrieves"]) if info_retention_population is not None else None,
+            "retention_type": self.eval_retention,
+            "regularization": self.regularization_retention,
             "regularization_lambdas": self.reg_lambdas,
             "time": self.time_elapsed,
         }
@@ -614,16 +614,9 @@ class EvoSwarmExperiment:
             # Save the deap controller
             with open(f"results/{self.experiment_name}/controller.pkl", "wb") as f:
                 pickle.dump(self.controller_deap, f)
-            # Save the toolbox
-            with open(f"results/{self.experiment_name}/toolbox.pkl", "wb") as f:
-                pickle.dump(self.toolbox_deap, f)
     
     # TODO: change name of parameters
-    def run(self, generations, n_workers = 1, eval_retaining = None, regularization_retaining = None):
-        available_cores = multiprocessing.cpu_count()
-        self.n_workers = n_workers if n_workers <= available_cores else available_cores
-        self.eval_retaining = eval_retaining
-
+    def run(self, generations, n_workers = 1, eval_retention = None, regularization_retention = None):
         if self.name is None:
             raise ValueError("Name is not set. Set the name of the experiment first.")
         if self.env is None:
@@ -632,22 +625,33 @@ class EvoSwarmExperiment:
             raise ValueError("Evolutionary algorithm is not set. Set the evolutionary algorithm first.")
         if self.population_size is None:
             raise ValueError("Population size is not set. Set the population size first.")
-        if eval_retaining is not None:
-            if eval_retaining not in ["random", "top", "population"]:
-                raise ValueError("Evaluation of retaining must be one of: random, top, population")
-        self.regularization_retaining = regularization_retaining
-        if regularization_retaining is not None:
-            if regularization_retaining not in ["gd", "wp", "genetic_distance", "weight_protection"]:
-                    raise ValueError("Regularization of retaining must be one of: gd, wp, genetic_distance, weight_protection")
-            
+        if eval_retention is not None:
+            if eval_retention not in ["top", "population"]:
+                raise ValueError("Evaluation of retention must be one of: top, population.")
+        if eval_retention is not None and self.experiment_name is None:
+            raise ValueError("Evaluation of retention not available for static environemnt (before drifts).")
+        if regularization_retention is not None:
+            if regularization_retention not in ["gd", "wp", "genetic_distance", "weight_protection"]:
+                    raise ValueError("Regularization of retention must be one of: gd, wp, genetic_distance, weight_protection.")
+        if regularization_retention is not None and self.experiment_name is None:
+            raise ValueError("Regularization for retention not available for static environemnt (before drifts).")
+        if (eval_retention is not None or regularization_retention is not None) and self.evolutionary_algorithm != "neat": 
+            raise ValueError(f"Regularization/Evaluation of retention available only for NEAT. Got {self.evolutionary_algorithm}")
+        
+        available_cores = multiprocessing.cpu_count()
+        self.n_workers = n_workers if n_workers <= available_cores else available_cores
+        self.eval_retention = eval_retention
+        self.regularization_retention = regularization_retention
+
         if self.experiment_name is None:
             distribution_str = "u" if self.env.distribution == "uniform" else "b"
-            self.experiment_name = f"{self.name}_{self.evolutionary_algorithm}_{self.env.duration}_{generations}_{self.population_size}_{self.env.n_agents}_{self.env.n_blocks}_{distribution_str}_{self.seed}"
+            self.experiment_name = f"{self.name}" \
+                f"/{self.evolutionary_algorithm}_{self.env.duration}_{generations}_{self.population_size}_{self.env.n_agents}_{self.env.n_blocks}_{distribution_str}" \
+                f"/seed{self.seed}/static{self.target_color}" # First evolution (no drift - static)
         
         os.makedirs(f"results/{self.experiment_name}", exist_ok=True) # Create directory for the experiment results
-        
-        
-          
+    
+
         print(f"\n{self.experiment_name}")
         print(f"Running {self.evolutionary_algorithm} with with the following parameters:")
         print(f"Name: {self.name}")
@@ -656,8 +660,13 @@ class EvoSwarmExperiment:
         print(f"Population size: {self.population_size}")
         print(f"Number of agents: {self.env.n_agents}")
         print(f"Number of blocks: {self.env.n_blocks}")
+        print(f"Distribution of blocks: {self.env.distribution}")
         print(f"Seed: {self.seed}")
         
+        # Set the seed for reproducibility
+        random.seed(self.seed)
+        np.random.seed(self.seed)
+
         self.env.reset(seed=self.seed, initial_state=self.env_initial_state)
         self.env.render() # Show the environment
 

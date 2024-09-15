@@ -2,6 +2,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from deap import tools, algorithms
 from PIL import Image, ImageDraw
+import json
 
 def print_kinematic_matrix():
     # Define the original matrix
@@ -68,6 +69,18 @@ def visual_grid_to_image(visual_grid):
                     )
 
     return img
+
+def load_logbook_json(path):
+    logbook_path = f"{path}/logbook.json"
+    with open(logbook_path, "r") as f:
+        logbook = json.load(f)
+    return logbook
+
+def load_experiment_json(path):
+    experiment_path = f"{path}/experiment.json"
+    with open(experiment_path, "r") as f:
+        experiment = json.load(f)
+    return experiment
 
 def plot_evolution(bests, avgs = None, medians = None, stds = None, completion_fitness = None, filename = None):
     x_values = np.arange(len(np.array(avgs)))
