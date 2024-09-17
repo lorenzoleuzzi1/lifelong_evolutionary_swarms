@@ -1,10 +1,10 @@
 #!/bin/bash
 
 #SBATCH --job-name=evoswarm
-#SBATCH --nodes=5
+#SBATCH --nodes=10
 #SBATCH --tasks-per-node=1
 
-worker_num=5
+worker_num=10
 
 # Must be one less that the total number of nodes
 nodes=$(scontrol show hostnames $SLURM_JOB_NODELIST) # Getting the node names
@@ -18,4 +18,9 @@ srun --nodes=1 --ntasks=1 -w ${nodes_array[1]} python3.11 run_and_drift.py  &
 srun --nodes=1 --ntasks=1 -w ${nodes_array[2]} python3.11 run_and_drift.py  &
 srun --nodes=1 --ntasks=1 -w ${nodes_array[3]} python3.11 run_and_drift.py  &
 srun --nodes=1 --ntasks=1 -w ${nodes_array[4]} python3.11 run_and_drift.py  &
+srun --nodes=1 --ntasks=1 -w ${nodes_array[5]} python3.11 run_and_drift.py  &
+srun --nodes=1 --ntasks=1 -w ${nodes_array[6]} python3.11 run_and_drift.py  &
+srun --nodes=1 --ntasks=1 -w ${nodes_array[7]} python3.11 run_and_drift.py  &
+srun --nodes=1 --ntasks=1 -w ${nodes_array[8]} python3.11 run_and_drift.py  &
+srun --nodes=1 --ntasks=1 -w ${nodes_array[9]} python3.11 run_and_drift.py  &
 wait # Wait for all background jobs to finish

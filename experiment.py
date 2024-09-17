@@ -1,3 +1,4 @@
+import neat.config
 import environment
 import neural_controller 
 from utils import neat_sigmoid, plot_evolution, eaSimpleWithElitism, eaEvoStick 
@@ -14,7 +15,6 @@ import copy
 import multiprocessing
 from multiprocessing import Pool
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from environment import SwarmForagingEnv
 
 EVOLUTIONARY_ALGORITHMS = ['neat', 'ga', 'cma-es', 'evostick']
 DEAP_ALGORITHMS = ['cma-es', 'ga', 'evostick']
@@ -32,7 +32,7 @@ class LifelongEvoSwarmExperiment:
                 controller_deap : neural_controller.NeuralController = None,
                 env : environment.SwarmForagingEnv = None,
                 env_initial_state : dict = None,
-                config_path_neat : str = None,
+                config_neat : neat.config.Config = None,
                 reg_lambdas : dict = {"gd": 6.0, "wp": [0.4, 0.3]}, 
                 seed : int = None,
                 n_workers : int = 1
@@ -44,7 +44,7 @@ class LifelongEvoSwarmExperiment:
         self.env = env
         self.env_initial_state = env_initial_state
         self.controller_deap = controller_deap
-        self.config_path_neat = config_path_neat
+        self.config_neat = config_neat
         self.reg_lambdas = reg_lambdas
         self.seed = seed
         self.current_generation = 0
@@ -98,8 +98,8 @@ class LifelongEvoSwarmExperiment:
         # self.prev_target = experiment["target_color"]
         # Other loads
         if self.evolutionary_algorithm == "neat":
-            with open(folder_path + '/neat_config.txt', 'r') as f:
-                self.config_path_neat = f.read()
+            with open(folder_path + '/neat_config.pkl', 'rb') as f:
+                self.config_neat = pickle.load(f)
         elif self.evolutionary_algorithm in DEAP_ALGORITHMS:
             with open(folder_path + '/controller.pkl', 'rb') as f:
                 self.controller_deap = pickle.load(f)
@@ -120,14 +120,8 @@ class LifelongEvoSwarmExperiment:
         if env_initial_state is not None:
             self.env_initial_state = env_initial_state
      
-    def _evaluate_genomes_batch(self, genomes, config):
+    def _evaluate_genomes_batch(self, genomes, config, env):
         results = []
-        env = SwarmForagingEnv(n_agents=self.env.n_agents, n_blocks=self.env.n_blocks, 
-                               target_color=self.target_color,
-                                duration=self.env.duration, 
-                                distribution=self.env.distribution,
-                                repositioning=self.env.repositioning,
-                                max_retrieves=self.env.max_retrieves) # TODO: consider if its better to just do a deepcopy, which one is faster
         
         for genome_id, genome in genomes:
             net = neat.nn.FeedForwardNetwork.create(genome, config)
@@ -155,11 +149,13 @@ class LifelongEvoSwarmExperiment:
 
         if self.n_workers > 1:
             # ----- PARALLEL EVALUATION -----
+            env_parallel = copy.deepcopy(self.env)
             batch_size = max(1, len(genomes) // self.n_workers)
             genome_batches = [genomes[i:i + batch_size] for i in range(0, len(genomes), batch_size)]
 
             with ProcessPoolExecutor(max_workers=self.n_workers) as executor:
-                futures = [executor.submit(self._evaluate_genomes_batch, batch, config) for batch in genome_batches]
+                futures = [executor.submit(self._evaluate_genomes_batch, batch, config, env_parallel) 
+                           for batch in genome_batches]
                 results = []
                 for future in as_completed(futures):
                     results.extend(future.result())
@@ -231,10 +227,6 @@ class LifelongEvoSwarmExperiment:
                     eval_genomes.sort(key=lambda x: x[1].fitness, reverse=True)
                     eval_genomes = [eval_genomes[0]]
                 
-                if self.eval_retention == "random": # TODO: remove random
-                    # Random choose eval genomes 10% of the population
-                    eval_genomes = random.sample(eval_genomes, int(len(eval_genomes) * 0.1))         
-                
                 # Find the best genome on the previous task
                 for _, genome in eval_genomes:
                     genome.fitness = 0.0
@@ -285,18 +277,12 @@ class LifelongEvoSwarmExperiment:
         return [float(fitness)]
     
     def _run_neat(self, generations):
-        if self.config_path_neat is None:
-            raise ValueError("Neat config path is not set. Set the path to the config file first.")
+        if self.config_neat is None:
+            raise ValueError("Neat config object is not set. Set the path to the config file first.")
 
-        # Set configuration file
-        config = neat.config.Config(neat.DefaultGenome, neat.DefaultReproduction,
-                                    neat.DefaultSpeciesSet, neat.DefaultStagnation, self.config_path_neat)
-        
-        config.genome_config.add_activation('neat_sigmoid', neat_sigmoid)
-        config.pop_size = self.population_size
         stats = neat.StatisticsReporter()
         if self.population is None:
-            self.population = neat.Population(config)
+            self.population = neat.Population(self.config_neat)
             self.population.add_reporter(neat.StdOutReporter(True))
         self.population.add_reporter(stats)
 
@@ -436,13 +422,8 @@ class LifelongEvoSwarmExperiment:
         
         # Set up the neural network controller
         if self.evolutionary_algorithm == 'neat':
-            if self.config_path_neat is None:
+            if self.config_neat is None:
                 raise ValueError("Neat config path is not set. Set the path to the config file first.")
-            config = neat.config.Config(neat.DefaultGenome, neat.DefaultReproduction,
-                                        neat.DefaultSpeciesSet, neat.DefaultStagnation, self.config_path_neat)
-            
-            config.genome_config.add_activation('neat_sigmoid', neat_sigmoid)
-            # controller_neat = neat.nn.FeedForwardNetwork.create(self.best_individual, config)
         elif self.evolutionary_algorithm in DEAP_ALGORITHMS:
             if self.controller_deap is None:
                 raise ValueError("DEAP controller is not set. Set the controller first.")
@@ -454,17 +435,14 @@ class LifelongEvoSwarmExperiment:
         if on_prev_env is not None:
             self.env.target_color = self.prev_target_color
             # Evaluate genomes on the previous task
-            genomes = copy.deepcopy(self.population)
-            
-            if self.eval_retention == "random":
-                genome_run = random.sample(genomes, 1)      
+            genomes = copy.deepcopy(self.population) 
             
             if self.eval_retention == "population":
                 
                 # Find the best genome on the previous task
                 for _, genome in genomes:
                     genome.fitness = 0.0
-                    net = neat.nn.FeedForwardNetwork.create(genome, config)
+                    net = neat.nn.FeedForwardNetwork.create(genome, self.config_neat)
                     obs, _ = self.env.reset(seed=self.seed, initial_state=self.env_initial_state)
                     
                     while True:
@@ -482,7 +460,7 @@ class LifelongEvoSwarmExperiment:
                 genome_run = genomes[0][1]
         
         if self.evolutionary_algorithm == 'neat':
-            controller_neat = neat.nn.FeedForwardNetwork.create(genome_run, config)
+            controller_neat = neat.nn.FeedForwardNetwork.create(genome_run, self.config_neat)
         elif self.evolutionary_algorithm in DEAP_ALGORITHMS:
             self.controller_deap.set_weights_from_vector(genome_run)
 
@@ -608,8 +586,8 @@ class LifelongEvoSwarmExperiment:
             pickle.dump(self.population, f)
         if self.evolutionary_algorithm == "neat":
             # Save the neat config file
-            with open(f"results/{self.experiment_name}/neat_config.txt", "w") as f:
-                f.write(str(self.config_path_neat))
+            with open(f"results/{self.experiment_name}/neat_config.pkl", "wb") as f:
+                pickle.dump(self.config_neat, f)
         elif self.evolutionary_algorithm in DEAP_ALGORITHMS:
             # Save the deap controller
             with open(f"results/{self.experiment_name}/controller.pkl", "wb") as f:

@@ -51,9 +51,8 @@ ROTATE_POSITIVE = [1.57079633, 1.57079633, 1.57079633]
 ROTATE_NEGATIVE = [3.14159265, 3.14159265, 3.14159265]
 
 # TODO: check for more speed optimization in the code
-# TODO: specify the number of colors available in the environment
 class SwarmForagingEnv(gym.Env):
-    """
+    """ TODO: redo it and update it in thesis
     Environment for swarm foraging task.
     Parameters:
     - target_color (int): The color of the objective block.
@@ -117,17 +116,18 @@ class SwarmForagingEnv(gym.Env):
             max_wheel_velocity = SIMULATION_MAX_WHEEL_VELOCITY,
             sensitivity = 0.5, # How close the agent can get to the block to pick it up 
             time_step = TIME_STEP, # in seconds
-            duration = 500, # max number of steps for an episode
-            max_retrieves = 20, # max number of retrives for an episode
-            n_colors = 5, # number of colors available in the environment
-            distribution = "uniform", # blocks colors distribution
-            repositioning = True, # reposition blocks after each retrieve
-            efficency_reward = False # reward for efficency (if task is completed before max steps)
+            duration = 500, # Max number of steps for an episode
+            max_retrieves = 20, # Max number of retrives for an episode
+            n_colors = 5, # Number of colors available in the environment
+            distribution = "uniform", # bBocks colors distribution
+            repositioning = True, # Reposition blocks after each retrieve
+            efficency_reward = False, # Reward for efficency (if task is completed before max steps)
+            see_other_agents = True # If agents can see other agents
             ):
         
         # --- Validate input parameters ---
         if target_color < RED or target_color > RED + n_colors - 1:
-            raise ValueError("Invalid target color. Choose a color between RED and RED + n_colors - 1")
+            raise ValueError("Invalid target color. Choose a color between 3 (red) and 3 + n_colors - 1")
         if distribution not in ["uniform", "biased"]:
             raise ValueError("Invalid distribution type. Choose between 'uniform' and 'biased'")
         if n_agents < 1:
@@ -154,6 +154,7 @@ class SwarmForagingEnv(gym.Env):
             raise ValueError("Invalid distribution type. Choose between 'uniform' and 'biased'")
         # ---------------------------------
 
+        # TODO: reorder the parameters
         self.nest = UP # The nest location (UP, DOWN, LEFT, RIGHT) TODO: maybe as parameter? Err its fine
         self.drop_zone = UP # The drop zone location (UP, DOWN, LEFT, RIGHT) TODO: maybe as parameter? Err its fine
         self.target_color = target_color 
@@ -177,6 +178,7 @@ class SwarmForagingEnv(gym.Env):
         self.distribution = distribution
         self.repositioning = repositioning
         self.efficency_reward = efficency_reward
+        self.see_other_agents = see_other_agents
 
         self._distance_matrix_agent_agent = np.zeros((self.n_agents, self.n_blocks), dtype=float)
         self._direction_matrix_agent_agent = np.zeros((self.n_agents, self.n_blocks), dtype=float)
@@ -209,7 +211,7 @@ class SwarmForagingEnv(gym.Env):
         self.n_colors = n_colors
         self._colors_map = {k: v for i, (k, v) in enumerate(self._colors_map.items()) if i < n_colors} # Select only the first n_colors
         self._reset_color = "\033[0m"  # Resets color to default
-        self.n_types = len(self._colors_map) + 1 + 1 + 1 # colors, robot, edge, nothing
+        self.n_types = n_colors + 1 + 1 + 1 # colors, robot, edge, nothing
         
         # Action space
         single_action_space = spaces.Box(low=np.array([-max_wheel_velocity, -max_wheel_velocity, -max_wheel_velocity]), 
@@ -301,11 +303,12 @@ class SwarmForagingEnv(gym.Env):
         self._direction_matrix_agent_block = angles
 
         # Agents-Agents directions matrix
-        dx_agents = self.agents_location[:, np.newaxis, 0] - self.agents_location[:, 0]  
-        dy_agents = self.agents_location[:, np.newaxis, 1] - self.agents_location[:, 1]
-        angles = np.degrees(np.arctan2(dy_agents, dx_agents))
-        angles = np.mod(np.add(angles, 360), 360)
-        self._direction_matrix_agent_agent = angles
+        if self.see_other_agents:
+            dx_agents = self.agents_location[:, np.newaxis, 0] - self.agents_location[:, 0]  
+            dy_agents = self.agents_location[:, np.newaxis, 1] - self.agents_location[:, 1]
+            angles = np.degrees(np.arctan2(dy_agents, dx_agents))
+            angles = np.mod(np.add(angles, 360), 360)
+            self._direction_matrix_agent_agent = angles
 
     def _update_distance_matrix(self):
         # Agents-Blocks distance matrix
@@ -313,8 +316,9 @@ class SwarmForagingEnv(gym.Env):
         self._distance_matrix_agent_block = np.linalg.norm(diff_matrix_blocks, axis=-1)
 
         # Agents-Agents distance matrix
-        diff_matrix_agents = self.agents_location[:, np.newaxis, :] - self.agents_location
-        self._distance_matrix_agent_agent = np.linalg.norm(diff_matrix_agents, axis=-1)
+        if self.see_other_agents:
+            diff_matrix_agents = self.agents_location[:, np.newaxis, :] - self.agents_location
+            self._distance_matrix_agent_agent = np.linalg.norm(diff_matrix_agents, axis=-1)
 
     def _detect(self):
         # Mimic sensors reading
@@ -332,15 +336,16 @@ class SwarmForagingEnv(gym.Env):
             if self.size - self.agents_location[i][1] - 1 < self.sensor_range: # Right edge
                 neighbors.append([1, self.size - self.agents_location[i][1] - 1, RIGHT])
             
-            # Get indexes of agents that are within the sensor range
-            neighbors_agents_idx = np.where(self._distance_matrix_agent_agent[i] <= self.sensor_range)[0]
-            neighbors_agents_idx = neighbors_agents_idx[neighbors_agents_idx != i] # Remove the i index
-            # Get the distances and directions of the agents that are within the sensor range
-            distances_agents = self._distance_matrix_agent_agent[i, neighbors_agents_idx]
-            directions_agents = self._direction_matrix_agent_agent[i, neighbors_agents_idx]
-            # Add the agents that are within the sensor range
-            for j in range(len(neighbors_agents_idx)):
-                neighbors.append([2, distances_agents[j], directions_agents[j]])
+            if self.see_other_agents:
+                # Get indexes of agents that are within the sensor range
+                neighbors_agents_idx = np.where(self._distance_matrix_agent_agent[i] <= self.sensor_range)[0]
+                neighbors_agents_idx = neighbors_agents_idx[neighbors_agents_idx != i] # Remove the i index
+                # Get the distances and directions of the agents that are within the sensor range
+                distances_agents = self._distance_matrix_agent_agent[i, neighbors_agents_idx]
+                directions_agents = self._direction_matrix_agent_agent[i, neighbors_agents_idx]
+                # Add the agents that are within the sensor range
+                for j in range(len(neighbors_agents_idx)):
+                    neighbors.append([2, distances_agents[j], directions_agents[j]])
 
             # Get indexes of blocks that are within the sensor range
             neighbors_blocks_idx = np.where(self._distance_matrix_agent_block[i] <= self.sensor_range)[0]
@@ -490,7 +495,7 @@ class SwarmForagingEnv(gym.Env):
             print("Max retrieves reached") 
             done = True
             if self.efficency_reward:
-                reward += self.duration - self.current_step
+                reward += (self.duration - self.current_step) / self.duration * (REWARD_PICK + REWARD_DROP)
         truncated = False
         if self.current_step >= self.duration: 
             truncated = True

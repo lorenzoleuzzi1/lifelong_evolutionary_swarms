@@ -142,7 +142,7 @@ def plot_evolutions_and_drifts(exp_paths, name):
             plt.plot(drift_best_generations_range, 
                         mean_best_to_plot, color=task_colors[i])
         
-        if i != 0:
+        if i != 0 and info["retention_type"] is not None:
             drift_retention_generations_range = range(generations_counters[i], generations_counters[i+1], 10)
             start_gen_retention = int(generations_counters[i-1] / 10) # 10 is the frequency of eval
             end_gen_retention = int(generations_counters[i] / 10)
@@ -175,15 +175,23 @@ if __name__ == "__main__":
 
     # seeds = range(10)
     # Define the directory containing the files
-    # results_path = os.path.abspath("/Users/lorenzoleuzzi/Library/CloudStorage/OneDrive-UniversityofPisa/lifelong evolutionary swarms/results")
-    results_path = "results"
-    experiments_name = "/testplot" # TODO as required input argparse
+    results_path = os.path.abspath("/Users/lorenzoleuzzi/Library/CloudStorage/OneDrive-UniversityofPisa/lifelong evolutionary swarms/results/results")
+    # results_path = "results"
+    experiments_name = "drift" # TODO as required input argparse
 
     # Read all the files in the directory
-    experiments_directiories = os.listdir(f"{results_path}/{experiments_name}")
-
-    for exp in experiments_directiories:
-        exp_seeds_directories = os.listdir(f"{results_path}/{experiments_name}/{exp}")
+    experiments_directories = [
+        item for item in os.listdir(f"{results_path}/{experiments_name}") 
+        if os.path.isdir(os.path.join(f"{results_path}/{experiments_name}", item)) 
+        and not item.startswith('.')
+    ]
+    
+    for exp in experiments_directories:
+        exp_seeds_directories = [
+            item for item in os.listdir(f"{results_path}/{experiments_name}/{exp}") 
+            if os.path.isdir(os.path.join(f"{results_path}/{experiments_name}/{exp}", item)) 
+            and not item.startswith('.')
+        ]        
         exp_seeds_directories = sorted(exp_seeds_directories)
         print(exp)
         experiment_paths = []
@@ -191,7 +199,10 @@ if __name__ == "__main__":
         for exp_seed in exp_seeds_directories:
             print("\t", exp_seed)
             path = f"{results_path}/{experiments_name}/{exp}/{exp_seed}"
-            exp_seed_drifts = os.listdir(path) # TODO: Error bc theres a plot png
+            exp_seed_drifts = [
+                item for item in os.listdir(path) 
+                if os.path.isdir(os.path.join(path, item)) and not item.startswith('.')
+            ]            
             exp_seed_drifts = sorted(exp_seed_drifts, key=lambda e: len(e))
             experiment_paths.append([f"{path}/{e}" for e in exp_seed_drifts])
 

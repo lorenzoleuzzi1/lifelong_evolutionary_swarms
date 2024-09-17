@@ -2,6 +2,8 @@ from experiment import LifelongEvoSwarmExperiment, EVOLUTIONARY_ALGORITHMS
 from environment import SwarmForagingEnv, BLUE, RED
 from neural_controller import NeuralController
 import argparse
+import neat
+from utils import neat_sigmoid
 
 def main(name, 
         evolutionary_algorithm, 
@@ -25,9 +27,17 @@ def main(name,
     initial_state, _ = env.reset(seed=seed)
     
     controller_deap = None
-    config_path_neat = None
+    config_neat = None
     if evolutionary_algorithm == "neat":
         config_path_neat = "config-feedforward.txt"
+        # Set configuration file
+        config_neat = neat.config.Config(neat.DefaultGenome, neat.DefaultReproduction,
+                                    neat.DefaultSpeciesSet, neat.DefaultStagnation, config_path_neat)
+        config_neat.genome_config.add_activation('neat_sigmoid', neat_sigmoid)
+        config_neat.pop_size = population_size
+        obs_example = env.reset(seed=seed)[0]
+        config_neat.genome_config.num_inputs = len(env.process_observation(obs_example)[0])
+        config_neat.genome_config.input_keys = [-i - 1 for i in range(config_neat.genome_config.num_inputs)]
     else:
         input_dim = len(env.process_observation(initial_state)[0])
         output_dim = 3
@@ -38,7 +48,7 @@ def main(name,
     experiment = LifelongEvoSwarmExperiment(env = env, name = name, evolutionary_algorithm=evolutionary_algorithm, 
                                     population_size=population_size, 
                                     controller_deap=controller_deap, 
-                                    config_path_neat=config_path_neat, 
+                                    config_neat=config_neat, 
                                     reg_lambdas=lambdas,
                                     seed = seed)
 
@@ -110,7 +120,6 @@ if __name__ == "__main__":
         raise ValueError("Seed must be greater than or equal to 0")
     if args.workers <= 0:
         raise ValueError("Number of workers must be greater than 0")
-    
     if args.evo != "neat" and len(args.targets) > 1:
         raise ValueError(f"Drifts are implemented only using NEAT, got {args.evo}.")
     
