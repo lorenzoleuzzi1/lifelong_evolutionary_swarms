@@ -75,7 +75,7 @@ def plot_evolutions_and_drifts(exp_paths, name):
                 # TODO: maybe others 
             if check_generations != info["generations"] or \
                                 (check_retention != info["retention_type"] and info["retention_type"] != None):
-                print(check_generations, info["generations"], check_retention, info["retention_type"])
+                print(i, check_generations, info["generations"], check_retention, info["retention_type"])
                 raise ValueError(f"Experiments to plot must have the same number of generations and retention type")
 
             generations_counters.append(generations_counters[-1] + len(log["best"]))
@@ -91,7 +91,6 @@ def plot_evolutions_and_drifts(exp_paths, name):
 
             # Retention metrics
             if info["retention_type"] is not None:
-
                 retention_whole_curve.extend(log["retention"])
                 retention_type = info["retention_type"]
                 reefs.append(info[f"best_fitness_retention_{retention_type}"]) 
@@ -168,16 +167,68 @@ def plot_evolutions_and_drifts(exp_paths, name):
     # plt.show()
     plt.clf()
 
-    # TODO: save the metrics
+    # Save the metrics in a csv
+    # Every row is a seed and the columns are the metrics
+    columns = ["Name", "baf", "avg_beef", "raf", "avg_reef", "avg_forgetting"]
+    for i in range(n_drifts): # Add the beef and reef for each drift
+        columns.append(f"evo{i+1}_beef")
+        if i > 0:
+            columns.append(f"evo{i+1}_reef")
+            columns.append(f"evo{i+1}_forgetting")
+    
+    data = []
+    for i in range(n_seeds):
+        row = [f"seed{i}"]
+        row.append(baf_seed[i])
+        row.append(avg_beef_seed[i])
+        row.append(raf_seed[i])
+        row.append(avg_reef_seed[i])
+        row.append(avg_forgetting_seed[i])
+        for j in range(n_drifts):
+            row.append(beefs_seed[i][j])
+            if j > 0:
+                if reefs_seed[i] != []:
+                        row.append(reefs_seed[i][j-1])
+                else:
+                    row.append(np.nan)
+                if forgetting_seed[i] != []:
+                    
+                        row.append(forgetting_seed[i][j-1])
+                else:
+                    row.append(np.nan)
+        data.append(row)
+
+    # Add a mean row
+    row = ["mean"]
+    row.append(np.mean(baf_seed))
+    row.append(np.mean(avg_beef_seed))
+    row.append(np.mean(raf_seed))
+    row.append(np.mean(avg_reef_seed))
+    row.append(np.mean(avg_forgetting_seed))
+    for j in range(n_drifts):
+        row.append(np.mean([beefs[j] for beefs in beefs_seed]))
+        if j > 0:
+            if reefs_seed[0] != []:
+                row.append(np.mean([reefs[j-1] for reefs in reefs_seed]))
+            else:
+                row.append(np.nan)
+            if forgetting_seed[0] != []:
+                row.append(np.mean([forgetting[j-1] for forgetting in forgetting_seed]))
+            else:
+                row.append(np.nan)
+    data.append(row)
+
+    df = pd.DataFrame(data, columns=columns)
+    df.to_csv(f"{name}/experiment_metrics.csv", index=False)
     
 
 if __name__ == "__main__":
 
     # seeds = range(10)
     # Define the directory containing the files
-    results_path = os.path.abspath("/Users/lorenzoleuzzi/Library/CloudStorage/OneDrive-UniversityofPisa/lifelong evolutionary swarms/results/results")
+    results_path = os.path.abspath("/Users/lorenzoleuzzi/Library/CloudStorage/OneDrive-UniversityofPisa/lifelong_evolutionary_swarms/results/results")
     # results_path = "results"
-    experiments_name = "drift" # TODO as required input argparse
+    experiments_name = "retention_pop_g_2" # TODO as required input argparse
 
     # Read all the files in the directory
     experiments_directories = [
@@ -207,13 +258,3 @@ if __name__ == "__main__":
             experiment_paths.append([f"{path}/{e}" for e in exp_seed_drifts])
 
         plot_evolutions_and_drifts(experiment_paths, f"{results_path}/{experiments_name}/{exp}")
-
-
-    # # Columns name
-    # if len(drifts) == 1:
-    #     columns = ["Name", "baf", "avg_beef"]
-    # else:
-    #     columns = ["Name", "baf", "avg_beef", "raf", "avg_reef"]
-    #     for i in range(len(reef)):
-    #         columns.append(f"evo{i+2}_beef")
-    #         columns.append(f"evo{i+2}_reef")

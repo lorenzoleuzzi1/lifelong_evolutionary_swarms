@@ -19,36 +19,39 @@ def main(name,
     sensitivity = 1.4
     max_wheel_speed = 0.4
     
-    initial_setting_bristol = {}
-    initial_setting_bristol['agents'] =  np.array([
-        [1.5, 8.0], # Agent 0
-        [1.5, 4.0], # Agent 1
-        [1.5, 12.0] # Agent 2
-        ])[:n_agents]
-    initial_setting_bristol['headings'] = np.array([176 , 181, 178])[:n_agents]
-    initial_setting_bristol['blocks'] = np.array([
-            [10.8, 2.8], # Carrier 100
-            [8.0, 4.0], # Carrier 101
-            [11.6, 6.8], # Carrier 102
-            [8.0, 8.8],  # Carrier 103
-            [12.4, 12.8], # Carrier 104
-            [6.4, 14], # Carrier 105
-            [10, 10.8] # Carrier 106
-        ])
-    initial_setting_bristol['colors'] = np.array([3, 5, 3, 4, 4, 5, 3])
-    n_colors = len(np.unique(initial_setting_bristol['colors']))
+    # initial_setting_bristol = {}
+    # initial_setting_bristol['agents'] =  np.array([
+    #     [1.5, 8.0], # Agent 0
+    #     [1.5, 4.0], # Agent 1
+    #     [1.5, 12.0] # Agent 2
+    #     ])[:n_agents]
+    # initial_setting_bristol['headings'] = np.array([176 , 181, 178])[:n_agents]
+    # initial_setting_bristol['blocks'] = np.array([
+    #         [10.8, 2.8], # Carrier 100
+    #         [8.0, 4.0], # Carrier 101
+    #         [11.6, 6.8], # Carrier 102
+    #         [8.0, 8.8],  # Carrier 103
+    #         [12.4, 12.8], # Carrier 104
+    #         [6.4, 14], # Carrier 105
+    #         [10, 10.8] # Carrier 106
+    #     ])
+    # initial_setting_bristol['colors'] = np.array([3, 5, 3, 4, 4, 5, 3])
+    # n_colors = len(np.unique(initial_setting_bristol['colors']))
+    n_colors = 3
     
-    env = SwarmForagingEnv(n_agents = len(initial_setting_bristol['agents']), 
-                           n_blocks = len(initial_setting_bristol['blocks']), 
+    env = SwarmForagingEnv(n_agents = 3, 
+                           n_blocks = 6, 
                            target_color = 3, # RED
-                           duration=steps, size = size, max_retrieves=3,
+                           duration=steps, size = size, max_retrieves=2,
                            sensor_range = sensor_range,
                            sensitivity = sensitivity,
                            max_wheel_velocity = max_wheel_speed,
                            n_colors = n_colors,
+                           distribution="uniform",
                            repositioning=False,
                            efficency_reward=True,
-                           see_other_agents=False)
+                           see_other_agents=False,
+                           blocks_in_line=True)
     
     config_path_neat = "config-feedforward.txt"
     # Set configuration file
@@ -62,8 +65,7 @@ def main(name,
     
     experiment = LifelongEvoSwarmExperiment(env = env, name = name, evolutionary_algorithm="neat", 
                                     population_size=population_size, 
-                                    config_neat=config_neat, 
-                                    env_initial_state=initial_setting_bristol,
+                                    config_neat=config_neat,
                                     seed = seed)
 
     experiment.run(generations, n_workers = workers)
@@ -76,7 +78,8 @@ if __name__ == "__main__":
     parser.add_argument('--agents', type=int, default=3,help='The number of agents in the arena.')
     parser.add_argument('--generations', type=int, default=200,help='The number of generations to run the algorithm.')
     parser.add_argument('--population', type=int, default=300,help='The size of the population for the evolutionary algorithm.')
-    parser.add_argument('--seed', type=int, default=0,help='The seed for the random number generator.')
+    parser.add_argument('--n_env', type=int, default=1, help='Number of environments to evaluate the fitness.')
+    parser.add_argument('--seed', type=int, default=None,help='The seed for the random number generator.')
     parser.add_argument('--workers', type=int, default=1, help='The number of workers to run the algorithm.')
     args = parser.parse_args()
     
@@ -88,7 +91,9 @@ if __name__ == "__main__":
         raise ValueError("Number of generations must be greater than 0")
     if args.population <= 0:
         raise ValueError("Population size must be greater than 0")
-    if args.seed < 0:
+    if args.n_env <= 0:
+        raise ValueError("Number of environments must be greater than 0")
+    if args.seed is not None and args.seed < 0:
         raise ValueError("Seed must be greater than or equal to 0")
     if args.workers <= 0:
         raise ValueError("Number of workers must be greater than 0")

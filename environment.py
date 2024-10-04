@@ -122,7 +122,8 @@ class SwarmForagingEnv(gym.Env):
             distribution = "uniform", # bBocks colors distribution
             repositioning = True, # Reposition blocks after each retrieve
             efficency_reward = False, # Reward for efficency (if task is completed before max steps)
-            see_other_agents = True # If agents can see other agents
+            see_other_agents = True, # If agents can see other agents
+            blocks_in_line = False # If blocks are in line
             ):
         
         # --- Validate input parameters ---
@@ -179,6 +180,7 @@ class SwarmForagingEnv(gym.Env):
         self.repositioning = repositioning
         self.efficency_reward = efficency_reward
         self.see_other_agents = see_other_agents
+        self.blocks_in_line = blocks_in_line
 
         self._distance_matrix_agent_agent = np.zeros((self.n_agents, self.n_blocks), dtype=float)
         self._direction_matrix_agent_agent = np.zeros((self.n_agents, self.n_blocks), dtype=float)
@@ -234,8 +236,8 @@ class SwarmForagingEnv(gym.Env):
     
     def _reposition_block(self, j):
         if self.repositioning:
-            self.blocks_location[j] = np.random.randint((5, 1), 
-                                                    (self.size - 2, self.size - 2), 
+            self.blocks_location[j] = self._rng.integers((6, 2), 
+                                                    (self.size - 1, self.size - 1), 
                                                     2)
         else:
             self.blocks_location[j] = [np.inf, np.inf]
@@ -244,26 +246,49 @@ class SwarmForagingEnv(gym.Env):
         # Blocks
         # blocks_locations = np.zeros((self.n_blocks, 2), dtype=float)
         low = (6, 2)
-        high = (self.size - 2, self.size - 2)
+        high = (self.size - 1, self.size - 1)
         blocks_locations = np.zeros((self.n_blocks, 2), dtype=float)
         blocks_colors = np.zeros(self.n_blocks, dtype=int)
-
-        for i in range(self.n_blocks):
-            while True:
-                blocks_locations[i] = np.random.randint(low, high, 2)
-                # Check if the new position is valid (not too close by another block) 2 units
-                if i == 0 or not np.any(np.linalg.norm(blocks_locations[i] - blocks_locations[:i], axis=1) < 2):
-                    break
+        if self.blocks_in_line:
+           
+            if self.n_blocks > self.size / 2:  # Check if there's not to many blocks to put them in line
+                raise ValueError("Too many blocks to put them in line")
             
-            if self.distribution == "uniform":
-                blocks_colors[i] = ((i + (self.target_color - RED)) % self.n_colors) + RED # Uniform distribution of colors
-            elif self.distribution == "biased":
-                if i < self.n_blocks * self.rate_target_block:
-                    blocks_colors[i] = self.target_color
-                else:
+            for i in range(self.n_blocks):
+                blocks_locations[i] = [self.size - (int(self.size / 4)), 
+                                       i * (self.size / (self.n_blocks + 1)) + (self.size / (self.n_blocks + 1))]
+                while True:
+                    # Add small random noise to the position
+                    blocks_locations[i] += self._rng.uniform(-1, 1, 2)
+                    # Check if the new position is valid (not too close by another block) 2 units
+                    if i == 0 or not np.any(np.linalg.norm(blocks_locations[i] - blocks_locations[:i], axis=1) < 2):
+                        break
+                if self.distribution == "uniform":
                     blocks_colors[i] = ((i + (self.target_color - RED)) % self.n_colors) + RED
-                    while blocks_colors[i] == self.target_color:
-                        blocks_colors[i] = np.random.randint(RED, RED + self.n_colors) # Random color different from the target color
+                elif self.distribution == "biased":
+                    if i < self.n_blocks * self.rate_target_block:
+                        blocks_colors[i] = self.target_color
+                    else:
+                        blocks_colors[i] = ((i + (self.target_color - RED)) % self.n_colors) + RED      
+                        while blocks_colors[i] == self.target_color:
+                            blocks_colors[i] = self._rng.integers(RED, RED + self.n_colors)
+        else:
+            for i in range(self.n_blocks):
+                while True:
+                    blocks_locations[i] = self._rng.integers(low, high, 2)
+                    # Check if the new position is valid (not too close by another block) 2 units
+                    if i == 0 or not np.any(np.linalg.norm(blocks_locations[i] - blocks_locations[:i], axis=1) < 2):
+                        break
+                
+                if self.distribution == "uniform":
+                    blocks_colors[i] = ((i + (self.target_color - RED)) % self.n_colors) + RED # Uniform distribution of colors
+                elif self.distribution == "biased":
+                    if i < self.n_blocks * self.rate_target_block:
+                        blocks_colors[i] = self.target_color
+                    else:
+                        blocks_colors[i] = ((i + (self.target_color - RED)) % self.n_colors) + RED      
+                        while blocks_colors[i] == self.target_color:
+                            blocks_colors[i] = self._rng.integers(RED, RED + self.n_colors) # Random color different from the target color
         
         # Agents
         agents_locations = np.zeros((self.n_agents, 2), dtype=float)
@@ -273,20 +298,10 @@ class SwarmForagingEnv(gym.Env):
             # Calculate y positions for the robots to occupy the entire line
             agents_locations[i] = [2, i * (self.size / (self.n_agents + 1)) + (self.size / (self.n_agents + 1))]
             # Add small random noise to the position
-            agents_locations[i] += np.random.uniform(-1, 1, 2)
+            agents_locations[i] += self._rng.uniform(-1, 1, 2)
 
-            agents_headings[i] = DOWN + np.random.uniform(-10, 10) # Heading going down with small random noise
-
-            # Random in the nest
-            # while True:
-            #     low = (0, 0)
-            #     high = (3, SIMULATION_ARENA_SIZE)
-            #     heading = DOWN
-            #     agents_locations[i] = np.random.randint(low, high, 2)
-            #     # Check if the new position is valid (not occupied by another agent)
-            #     if i == 0 or not np.any(np.linalg.norm(agents_locations[i] - agents_locations[:i], axis=1) < 1):
-            #         break
-            
+            agents_headings[i] = DOWN + self._rng.uniform(-10, 10) # Heading going down with small random noise
+        # blocks_colors = rng.permutation(blocks_colors)
         return {
             'agents': np.array(agents_locations, dtype=float),
             'headings': np.array(agents_headings, dtype=float),
@@ -375,7 +390,7 @@ class SwarmForagingEnv(gym.Env):
         return obs
     
     def reset(self, seed=None, initial_state=None):
-        np.random.seed(seed=seed)
+        self._rng = np.random.default_rng(seed=seed)
                 
         self._agents_carrying = np.full(self.n_agents, -1, dtype=int)
         self._blocks_picked_up = np.full(self.n_blocks, -1, dtype=int)
@@ -414,14 +429,6 @@ class SwarmForagingEnv(gym.Env):
     def step(self, action):
         
         self._rewards = np.zeros(self.n_agents)
-        
-        # # Automatic collision avoidance # TODO: if I really want to implement it has to be deterministic ispiration from real DOTS
-        # colliding_agents = np.argwhere(self._distance_matrix_agent_agent < self.sensitivity)
-        # colliding_agents = colliding_agents[colliding_agents[:, 0] < colliding_agents[:, 1]] # Filter out self-collisions and duplicate pairs
-        # colliding_agents = np.unique(colliding_agents.flatten()) # Flatten the array to get a list of unique indices of agents involved in collisions
-        # if colliding_agents.size > 0:
-        #     # Rotate at max speed stayin in place
-        #     action[colliding_agents] = [self.max_wheel_velocity, self.max_wheel_velocity, self.max_wheel_velocity]  # Stop the agents involved in collisions
         
         # ----- MOVEMENT -----
         # Move all agents
@@ -508,10 +515,10 @@ class SwarmForagingEnv(gym.Env):
 
     def render(self, verbose = True):
         # Define the size of the visualization grid
-        vis_grid_size = 20  # Adjust based on desired resolution
+        vis_grid_size = 20 # Adjust based on desired resolution
 
         # Create an empty visual representation of the environment
-        visual_grid = [["." for _ in range(vis_grid_size)] for _ in range(vis_grid_size)]
+        visual_grid = [["." for _ in range(vis_grid_size + 1)] for _ in range(vis_grid_size + 1)]
         
         # Populate the visual grid with blocks
         for i, block in enumerate(self.blocks_location):
@@ -519,7 +526,7 @@ class SwarmForagingEnv(gym.Env):
             if block[0] != np.inf and block[1] != np.inf:
                 x = int(round(block[0] * (vis_grid_size) / (self.size), 0))
                 y = int(round(block[1] * (vis_grid_size) / (self.size), 0))
-                if 0 <= x < vis_grid_size and 0 <= y < vis_grid_size:
+                if 0 <= x <= vis_grid_size and 0 <= y <= vis_grid_size:
                     color_id = self.blocks_color[i]
                     color_code = self._colors_map.get(color_id, self._reset_color)
                     visual_grid[x][y] = f"{color_code}O{self._reset_color}"
@@ -529,7 +536,7 @@ class SwarmForagingEnv(gym.Env):
             # Convert continuous coordinates to discrete grid positions
             x = int(round(agent[0] * (vis_grid_size) / (self.size), 0))
             y = int(round(agent[1] * (vis_grid_size) / (self.size), 0))
-            if 0 <= x < vis_grid_size and 0 <= y < vis_grid_size:
+            if 0 <= x <= vis_grid_size and 0 <= y <= vis_grid_size:
                 if self._agents_carrying[i] != -1:
                     color_id = self.blocks_color[self._agents_carrying[i]]
                     color_code = self._colors_map.get(color_id, self._reset_color)
