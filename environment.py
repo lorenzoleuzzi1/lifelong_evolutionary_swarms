@@ -390,6 +390,7 @@ class SwarmForagingEnv(gym.Env):
         return obs
     
     def reset(self, seed=None, initial_state=None):
+        
         self._rng = np.random.default_rng(seed=seed)
                 
         self._agents_carrying = np.full(self.n_agents, -1, dtype=int)

@@ -17,8 +17,16 @@ tasks_plot_color_map = {
     6: "yellow",
     7: "purple"
 }
+map_title_str = {
+    "ga": "GA",
+    "evostick": "EvoStick",
+    "cma-es": "CMA-ES",
+    "neat": "NEAT",
+    "u": "Uniform",
+    "b": "Biased",
+}
 
-def plot_evolutions_and_drifts(exp_paths, name):
+def plot_evolutions_and_drifts(exp_paths, name, retention_type):
     """
     drifts must be in the format:
     {
@@ -36,7 +44,6 @@ def plot_evolutions_and_drifts(exp_paths, name):
                              same number of drifts. {len(d)} != {len(exp_paths[0])}")
     n_drifts = len(exp_paths[0])
     # TODO: check if they have the same number of generations
-    # TODO: check if they have the same retention type
 
     baf_seed = [] # best anytime fitness per seed
     raf_seed = [] # retention anytime fitness per seed
@@ -71,35 +78,42 @@ def plot_evolutions_and_drifts(exp_paths, name):
             # Check for incompatibilities between instances
             if i == 0:
                 check_generations = info["generations"]
-                check_retention = info["retention_type"]
-                # TODO: maybe others 
-            if check_generations != info["generations"] or \
-                                (check_retention != info["retention_type"] and info["retention_type"] != None):
-                print(i, check_generations, info["generations"], check_retention, info["retention_type"])
-                raise ValueError(f"Experiments to plot must have the same number of generations and retention type")
+            if check_generations != info["generations"]:
+                raise ValueError(f"Experiments to plot must have the same number of generations and retention type, got {check_generations} and {info['generations']}")
 
             generations_counters.append(generations_counters[-1] + len(log["best"]))
             task_colors.append(tasks_plot_color_map[info["target_color"]])
              
             # Best metrics
-            best_whole_curve.extend(log["best"])
-            beefs.append(info["best_fitness"])
+            if log["no_penalty"] == []:
+                best_whole_curve.extend(log["best"])
+                beefs.append(info["best"])
+                # Plot best
+                plt.plot(range(generations_counters[j], generations_counters[j+1]), 
+                    log["best"], color=task_colors[j], alpha=0.2)
+            else:
+                best_whole_curve.extend(log["no_penalty"])
+                beefs.append(log["no_penalty"][-1])
+                # Plot best
+                plt.plot(range(generations_counters[j], generations_counters[j+1]),
+                    log["no_penalty"], color=task_colors[j], alpha=0.2)
+            
+            if j > 0:
+                
+                if retention_type is not None:
+                    if log[f"retention_{retention_type}"] == []:
+                        print(j, retention_type, log[f"retention_{retention_type}"])
+                        raise ValueError(f"Retention type {retention_type} not found in the logbook.")
+                
+                    # Retention metrics
+                    retention_whole_curve.extend(log[f"retention_{retention_type}"])
+                    reefs.append(info[f"retention_{retention_type}"])
 
-            # Plot best
-            plt.plot(range(generations_counters[j], generations_counters[j+1]), 
-                     log["best"], color=task_colors[j], alpha=0.2)
+                    forgettings.append(beefs[-2] - reefs[-1])
 
-            # Retention metrics
-            if info["retention_type"] is not None:
-                retention_whole_curve.extend(log["retention"])
-                retention_type = info["retention_type"]
-                reefs.append(info[f"best_fitness_retention_{retention_type}"]) 
-
-                forgettings.append(beefs[-2] - reefs[-1])
-
-                # Plot retention TODO: maybe the last value is not in the plot because every n gens
-                plt.plot(range(generations_counters[j], generations_counters[j+1], 10), 
-                         log["retention"], linestyle='-.', color=task_colors[j-1], alpha=0.2)
+                    plt.plot(range(generations_counters[j], generations_counters[j+1] + 10, 10), # TODO: change 10 with the frequency of eval
+                            log[f"retention_{retention_type}"], linestyle='-.', color=task_colors[j-1], alpha=0.2)
+                
         
         best_whole_curves_perseed.append(best_whole_curve) # For plotting the mean
         retention_whole_curves_perseed.append(retention_whole_curve) # For plotting the mean
@@ -115,12 +129,12 @@ def plot_evolutions_and_drifts(exp_paths, name):
     # Plot the mean
     mean_best_whole_curves_perseed = np.mean(best_whole_curves_perseed, axis = 0)
     mean_retention_whole_curves_perseed = np.mean(retention_whole_curves_perseed, axis = 0)
-
-    # Save the mean in a json
     
     plotted_best_tasks = []
     plotted_retention_tasks = []
     
+    start_gen_retention = 0
+
     for i in range(n_drifts):
 
         drift_best_generations_range = range(generations_counters[i], generations_counters[i+1])
@@ -141,12 +155,13 @@ def plot_evolutions_and_drifts(exp_paths, name):
             plt.plot(drift_best_generations_range, 
                         mean_best_to_plot, color=task_colors[i])
         
-        if i != 0 and info["retention_type"] is not None:
-            drift_retention_generations_range = range(generations_counters[i], generations_counters[i+1], 10)
-            start_gen_retention = int(generations_counters[i-1] / 10) # 10 is the frequency of eval
-            end_gen_retention = int(generations_counters[i] / 10)
-            mean_retention_to_plot = mean_retention_whole_curves_perseed[start_gen_retention:end_gen_retention]
-            
+        if i != 0 and retention_type is not None:
+            len_retentions = int(len(mean_retention_whole_curves_perseed) / (n_drifts-1)) # TODO: 10 frequency param
+
+            drift_retention_generations_range = range(generations_counters[i], generations_counters[i+1]+10, 10)
+            mean_retention_to_plot = mean_retention_whole_curves_perseed[start_gen_retention:start_gen_retention+len_retentions]
+            start_gen_retention += len_retentions
+
             if task_colors[i-1] not in plotted_retention_tasks:
                 plt.plot(drift_retention_generations_range,
                          mean_retention_to_plot, linestyle='-.', color=task_colors[i-1],
@@ -155,15 +170,37 @@ def plot_evolutions_and_drifts(exp_paths, name):
             else:
                 plt.plot(drift_retention_generations_range, 
                          mean_retention_to_plot, linestyle='-.', color=task_colors[i-1])
+    if n_drifts > 1 and retention_type is not None:
+        # plt.legend(loc="lower left", fontsize=8.5)
+        legend_elements = [plt.Line2D([0], [0], color='grey', linestyle='-', label='Current'),
+                        plt.Line2D([0], [0], color='grey', linestyle='-.', label='Retention')]
 
-    plt.legend(loc="lower left", fontsize=8.5)
-    if n_drifts == 1:
-        plt.title("Evolution")
+        plt.legend(handles=legend_elements, loc='upper left', fontsize=12)
+    # exp_name = name.split("/")[-1]
+    # exp_name_splitted = exp_name.split("_")
+    # evo_alg = map_title_str[exp_name_splitted[0]]
+    # distribution = map_title_str[exp_name_splitted[-1]]
+    # title = f"{evo_alg}, {distribution}"
+    
+    # if n_drifts > 1:
+    #     if retention_type is not None:
+    #         title += f", Retention {retention_type}"
+        
+    #     if info["regularization"] is not None:
+    #         title += f", Regularization {info['regularization']} {list(info['regularization_lambdas'].values())[0]} \n"
+
+    #     title += " - Evolutions with Drifts"
+    # else:
+    #     title += " - Evolution"
+
+    # plt.title(title)
+    plt.xlabel("Generation", fontsize=14)
+    plt.ylabel("Fitness", fontsize=14)
+    
+    if retention_type is not None:
+        plt.savefig(f"{name}/experiment_plot_retention_{retention_type}.png", bbox_inches='tight')
     else:
-        plt.title("Evolution with Drifts")
-    plt.xlabel("Generations")
-    plt.ylabel("Fitness")
-    plt.savefig(f"{name}/experiment_plot.png")
+        plt.savefig(f"{name}/experiment_plot.png", bbox_inches='tight')
     # plt.show()
     plt.clf()
 
@@ -219,16 +256,23 @@ def plot_evolutions_and_drifts(exp_paths, name):
     data.append(row)
 
     df = pd.DataFrame(data, columns=columns)
-    df.to_csv(f"{name}/experiment_metrics.csv", index=False)
+    if retention_type is not None:
+        df.to_csv(f"{name}/experiment_metrics_retention_{retention_type}.csv", index=False)
+    else:
+        df.to_csv(f"{name}/experiment_metrics.csv", index=False)
     
 
 if __name__ == "__main__":
-
+    
+    parser = argparse.ArgumentParser(description='Plot the evolution of the experiments.')
+    parser.add_argument('experiment_name', type=str, help=f'The name of the experiments.')
+    parser.add_argument('--retention_type', '-ret', type=str, default=None, help=f'The type of retention to plot.')
     # seeds = range(10)
     # Define the directory containing the files
-    results_path = os.path.abspath("/Users/lorenzoleuzzi/Library/CloudStorage/OneDrive-UniversityofPisa/lifelong_evolutionary_swarms/results/results")
+    results_path = os.path.abspath("/Users/lorenzoleuzzi/Library/CloudStorage/OneDrive-UniversityofPisa/lifelong_evolutionary_swarms/results")
     # results_path = "results"
-    experiments_name = "retention_pop_g_2" # TODO as required input argparse
+    experiments_name = parser.parse_args().experiment_name
+    retention_type = parser.parse_args().retention_type
 
     # Read all the files in the directory
     experiments_directories = [
@@ -257,4 +301,4 @@ if __name__ == "__main__":
             exp_seed_drifts = sorted(exp_seed_drifts, key=lambda e: len(e))
             experiment_paths.append([f"{path}/{e}" for e in exp_seed_drifts])
 
-        plot_evolutions_and_drifts(experiment_paths, f"{results_path}/{experiments_name}/{exp}")
+        plot_evolutions_and_drifts(experiment_paths, f"{results_path}/{experiments_name}/{exp}", retention_type)

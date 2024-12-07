@@ -64,7 +64,8 @@ class LifelongEvoSwarmExperiment:
         self.prev_target_color = None
 
         # they are set when calling run method TODO: maybe init?? n_workers yes but the other no bc the change between runs
-        self.n_workers = n_workers
+        available_cores = multiprocessing.cpu_count()
+        self.n_workers = n_workers if n_workers <= available_cores else available_cores
         self.n_env = n_env
 
         self.eval_retention = None
@@ -129,13 +130,13 @@ class LifelongEvoSwarmExperiment:
         if env_initial_state is not None:
             self.env_initial_state = env_initial_state
     
-    def _run_episode(self, genome, config, env, n_env = 10):
+    def _run_episode(self, genome, config, env):
         net = neat.nn.FeedForwardNetwork.create(genome, config)
         
-        if n_env == 1:
+        if self.n_env == 1:
             environment_seeds = [self.seed]
         else:
-            environment_seeds = [random.randint(0, 1000000) for _ in range(n_env)]
+            environment_seeds = [random.randint(0, 1000000) for _ in range(self.n_env)]
         
         fitnesses = []
         
@@ -163,12 +164,14 @@ class LifelongEvoSwarmExperiment:
         results = []
         
         for genome_id, genome in genomes:
-            fitness = self._run_episode(genome, config, env, n_env = self.n_env)
+            fitness = self._run_episode(genome, config, env)
 
             results.append((genome_id, fitness))
         
         return results
 
+    # TODO: rename a bit, run evaluate and calculate... choose one
+    
     def _calculate_fitness_neat(self, genomes, config):
         self.env.target_color = self.target_color
 
@@ -192,7 +195,7 @@ class LifelongEvoSwarmExperiment:
         else:
             # ----- SEQUENTIAL EVALUATION -----
             for genome_id, genome in genomes:
-                genome.fitness = self._run_episode(genome, config, self.env, n_env = self.n_env)
+                genome.fitness = self._run_episode(genome, config, self.env)
             # -------------------------------
         
         # ----- REGULARIZATION -----
@@ -231,16 +234,15 @@ class LifelongEvoSwarmExperiment:
         # ----- EVALUATE RETAINING -----
         if self.eval_retention is not None and self.prev_target_color is not None:
             # Evaluate genomes on the previous task
-            if (self._current_generation % FREQUENCY_EVAL_RETENTION == 0 or 
-                self._current_generation == self._generations - 1): # Evaluate at frequency and at the end of the evolution
-                
+            if (self._current_generation % FREQUENCY_EVAL_RETENTION == 0
+                or self._current_generation == self._generations - 1): # Evaluate at frequency
                 self.env.target_color = self.prev_target_color
                 eval_genomes = copy.deepcopy(genomes)
-                
+
                 if "top" in self.eval_retention:
                     # Take top current genome
                     eval_genomes.sort(key=lambda x: x[1].fitness, reverse=True)
-                    top_genome = eval_genomes[0]
+                    top_genome = eval_genomes[0][1]
                     retention_top = self._run_episode(top_genome, config, self.env) 
                     print(f"Retention_top: {retention_top}")
                     self.retention_top_fitness.append(retention_top)
@@ -254,14 +256,15 @@ class LifelongEvoSwarmExperiment:
                     print(f"Retention_pop: {retention_pop}")
                     self.retention_pop_fitness.append(retention_pop)
         # -------------------------------
+        
         self._current_generation += 1
     
-    def _calculate_fitness_deap(self, individual, n_env = 10):
+    def _calculate_fitness_deap(self, individual):
 
-        if n_env == 1:
+        if self.n_env == 1:
             environment_seeds = [self.seed]
         else:
-            environment_seeds = [random.randint(0, 1000000) for _ in range(n_env)]
+            environment_seeds = [random.randint(0, 1000000) for _ in range(self.n_env)]
         fitnesses = []
         
         for seed in environment_seeds:
@@ -425,8 +428,8 @@ class LifelongEvoSwarmExperiment:
             raise ValueError("Previous target color is not set. Set it first.")
         if on_prev_env is not None and self.population is None:
             raise ValueError("Population is not set. Set it first.")
-        if on_prev_env is not None and on_prev_env not in ["top", "population"]:
-            raise ValueError("On previous environment must be one of: top, population")
+        if on_prev_env is not None and on_prev_env not in ["top", "population", "pop"]:
+            raise ValueError("On previous environment must be one of: top, population/pop.")
         if on_prev_env is not None and self.evolutionary_algorithm != "neat":
             raise ValueError(f"Evaluation of retention available only for NEAT. Got {self.evolutionary_algorithm}")
         
@@ -443,8 +446,8 @@ class LifelongEvoSwarmExperiment:
         self.env.target_color = self.target_color
 
         if on_prev_env is not None:
-            self.env.target_color = self.prev_target_color # Previous task
-            
+            self.env.target_color = self.prev_target_color # Previous task   
+
             if on_prev_env == "population":
                 genomes = copy.deepcopy(list(self.population.population.items())) 
                 
@@ -532,6 +535,7 @@ class LifelongEvoSwarmExperiment:
             "avg": avgs,
             "median": medians,
             "std": stds,
+            "retention_top": self.retention_top_fitness,
             "retention_pop": self.retention_pop_fitness,
             "no_penalty": self.fitness_no_penalty,
         }
@@ -551,11 +555,12 @@ class LifelongEvoSwarmExperiment:
             "n_colors": self.env.n_colors,
             "repositioning": self.env.repositioning,
             "blocks_in_line": self.env.blocks_in_line,
+            "n_env": self.n_env,
             "seed": self.seed,
             "best": bests[-1],
             "no_penalty": self.fitness_no_penalty[-1] if self.fitness_no_penalty else None,
-            "retention_pop": self.retention_pop_fitness[-1] if self.retention_pop_fitness else None,
             "retention_top": self.retention_top_fitness[-1] if self.retention_top_fitness else None,
+            "retention_pop": self.retention_pop_fitness[-1] if self.retention_pop_fitness else None,
             "test_fitness": total_reward,
             "info": info,
             "correct_retrieves": len(info["correct_retrieves"]),
@@ -598,7 +603,7 @@ class LifelongEvoSwarmExperiment:
                 pickle.dump(self.controller_deap, f)
     
     # TODO: change name of parameters
-    def run(self, generations, n_workers = 1, eval_retention = None, regularization_retention = None):
+    def run(self, generations, eval_retention = None, regularization_retention = None):
         if self.name is None:
             raise ValueError("Name is not set. Set the name of the experiment first.")
         if self.env is None:
@@ -609,8 +614,8 @@ class LifelongEvoSwarmExperiment:
             raise ValueError("Population size is not set. Set the population size first.")
         if eval_retention is not None:
             for e in eval_retention:
-                if e not in ["top", "population"]:
-                    raise ValueError("Evaluation of retention must be one of: top, population.")
+                if e not in ["top", "population", "pop"]:
+                    raise ValueError("Evaluation of retention must be one of: top, population/pop.")
         if eval_retention is not None and self.experiment_name is None:
             raise ValueError("Evaluation of retention not available for static environemnt (before drifts).")
         if regularization_retention is not None:
@@ -621,8 +626,6 @@ class LifelongEvoSwarmExperiment:
         if (eval_retention is not None or regularization_retention is not None) and self.evolutionary_algorithm != "neat": 
             raise ValueError(f"Regularization/Evaluation of retention available only for NEAT. Got {self.evolutionary_algorithm}")
         
-        available_cores = multiprocessing.cpu_count()
-        self.n_workers = n_workers if n_workers <= available_cores else available_cores
         self.eval_retention = eval_retention
         self.regularization_retention = regularization_retention
 

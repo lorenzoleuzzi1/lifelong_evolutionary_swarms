@@ -95,13 +95,12 @@ def plot_evolution(bests, avgs = None, medians = None, stds = None, completion_f
     if completion_fitness is not None:
         plt.axhline(y=completion_fitness, color='g', linestyle='--', label='completion criterion')
     
-    plt.legend()
-    plt.title("Evolution")
-    plt.xlabel("Generation")
-    plt.ylabel("Fitness")
+    plt.legend(fontsize=12)
+    plt.xlabel("Generation", fontsize=14)
+    plt.ylabel("Fitness", fontsize=14)
     
     if filename is not None:
-        plt.savefig(filename)
+        plt.savefig(filename, bbox_inches='tight')
     else:
         plt.show()
 # TODO: maybe put them in a deap python file
