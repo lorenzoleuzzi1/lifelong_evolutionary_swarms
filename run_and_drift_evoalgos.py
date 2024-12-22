@@ -1,10 +1,13 @@
-from experiment import LifelongEvoSwarmExperiment
-from environment import SwarmForagingEnv
+from experiment import LifelongEvoSwarmExperiment, EVOLUTIONARY_ALGORITHMS
+from environment import SwarmForagingEnv, BLUE, RED
+from neural_controller import NeuralController
 import argparse
 import neat
 from utils import neat_sigmoid
+import cProfile
 
 def main(name, 
+        evolutionary_algorithm, 
         steps,
         generations,
         population_size,
@@ -23,24 +26,33 @@ def main(name,
     
     env = SwarmForagingEnv(n_agents = n_agents, n_blocks = n_blocks, n_colors=n_colors,
                            target_color=drifts[0], duration=steps, distribution=distribution)
-    # initial_state, _ = env.reset(seed=seed)
+    initial_state, _ = env.reset(seed=seed)
     
-    config_path_neat = "config-feedforward.txt"
-    # Set configuration file
-    config_neat = neat.config.Config(neat.DefaultGenome, neat.DefaultReproduction,
-                                neat.DefaultSpeciesSet, neat.DefaultStagnation, config_path_neat)
-    config_neat.genome_config.add_activation('neat_sigmoid', neat_sigmoid)
-    config_neat.pop_size = population_size
-    obs_example = env.reset(seed=seed)[0]
-    config_neat.genome_config.num_inputs = len(env.process_observation(obs_example)[0])
-    config_neat.genome_config.input_keys = [-i - 1 for i in range(config_neat.genome_config.num_inputs)]
+    controller_deap = None
+    config_neat = None
+    if evolutionary_algorithm == "neat":
+        config_path_neat = "config-feedforward.txt"
+        # Set configuration file
+        config_neat = neat.config.Config(neat.DefaultGenome, neat.DefaultReproduction,
+                                    neat.DefaultSpeciesSet, neat.DefaultStagnation, config_path_neat)
+        config_neat.genome_config.add_activation('neat_sigmoid', neat_sigmoid)
+        config_neat.pop_size = population_size
+        obs_example = env.reset(seed=seed)[0]
+        config_neat.genome_config.num_inputs = len(env.process_observation(obs_example)[0])
+        config_neat.genome_config.input_keys = [-i - 1 for i in range(config_neat.genome_config.num_inputs)]
+    else:
+        input_dim = len(env.process_observation(initial_state)[0])
+        output_dim = 3
+        layer_sizes = [input_dim] + [output_dim]
+        controller_deap = NeuralController(layer_sizes, hidden_activation="neat_sigmoid", output_activation="neat_sigmoid")
     
-    experiment = LifelongEvoSwarmExperiment(env = env, name = name, 
+    experiment = LifelongEvoSwarmExperiment(env = env, name = name, evolutionary_algorithm=evolutionary_algorithm, 
                                     population_size=population_size, 
+                                    controller_deap=controller_deap, 
                                     config_neat=config_neat, 
                                     reg_lambdas=lambdas,
-                                    n_env=n_env,
-                                    seed=seed,
+                                    n_env = n_env,
+                                    seed = seed,
                                     n_workers = workers)
 
     experiment.run(generations)
@@ -48,13 +60,14 @@ def main(name,
     for drift in drifts[1:]:
         experiment.drift(drift)
         experiment.run(generations,
-                       eval_retention = eval_retention, #TODO: maybe rename
+                       eval_retention = eval_retention, 
                        regularization_retention = regularization)
         
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description='Evolutionary swarm parameters.')
     parser.add_argument('--name', type=str, default="test", help=f'The name of the experiment.')
+    parser.add_argument('--evo', type=str, default="neat", help=f'The name of the script to run. Must be one of: {EVOLUTIONARY_ALGORITHMS}')
     parser.add_argument('--steps', type=int, default=500, help='The number of steps of each episode.')
     parser.add_argument('--generations', type=int, default=200,help='The number of generations to run the algorithm.')
     parser.add_argument('--population', type=int, default=300,help='The size of the population for the evolutionary algorithm.')
@@ -71,6 +84,8 @@ if __name__ == "__main__":
     parser.add_argument('--workers', type=int, default=1, help='The number of workers to run the algorithm.')
     args = parser.parse_args()
     
+    if args.evo not in EVOLUTIONARY_ALGORITHMS:
+        raise ValueError(f"Script must be one of {EVOLUTIONARY_ALGORITHMS}")
     if args.steps <= 0:
         raise ValueError("Number of steps must be greater than 0")
     if args.generations <= 0:
@@ -117,9 +132,11 @@ if __name__ == "__main__":
         raise ValueError("Seed must be greater than or equal to 0")
     if args.workers <= 0:
         raise ValueError("Number of workers must be greater than 0")
-    
+    if args.evo != "neat" and len(args.targets) > 1:
+        raise ValueError(f"Drifts are implemented only using NEAT, got {args.evo}.")
     #cProfile.run("main(args.name, args.evo, args.steps, args.generations, args.population, args.agents, args.blocks, args.colors, args.distribution, args.targets, args.n_env, args.eval_retention, args.regularization, args.lambdas, args.seed, args.workers)")
     main(args.name, 
+        args.evo, 
         args.steps,
         args.generations, 
         args.population,

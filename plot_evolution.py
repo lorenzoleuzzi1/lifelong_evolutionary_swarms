@@ -72,8 +72,10 @@ def plot_evolutions_and_drifts(exp_paths, name, retention_type):
         # Iterate thru the drifts
         for j in range(n_drifts):
            
-            log = load_logbook_json(exp_paths[i][j]) 
-            info = load_experiment_json(exp_paths[i][j])
+            with open(experiment_paths[i][j] + "/logbook_summary.json", "r") as f:
+                log = json.load(f)
+            with open(experiment_paths[i][j] + "/info.json", "r") as f:
+                info = json.load(f)
 
             # Check for incompatibilities between instances
             if i == 0:

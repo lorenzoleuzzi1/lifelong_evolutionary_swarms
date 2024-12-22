@@ -1,24 +1,18 @@
 import neat.config
 import environment
 import neural_controller 
-from utils import neat_sigmoid, plot_evolution, eaSimpleWithElitism, eaEvoStick 
+from utils import plot_evolution
 import random
 import numpy as np
 import neat
 import pickle
-from deap import base, creator, tools, algorithms, cma
 import time
 import json
 import os
 import imageio
 import copy
 import multiprocessing
-from multiprocessing import Pool
 from concurrent.futures import ProcessPoolExecutor, as_completed
-import gymnasium as gym
-
-EVOLUTIONARY_ALGORITHMS = ['neat', 'ga', 'cma-es', 'evostick']
-DEAP_ALGORITHMS = ['cma-es', 'ga', 'evostick']
 
 FREQUENCY_EVAL_RETENTION = 10
 
@@ -26,28 +20,26 @@ FREQUENCY_EVAL_RETENTION = 10
 # TODO: create two separate classes and use checkpoints
 # TODO: base class, DEAP class, NEAT class
 # TODO: only NEAT handles drifts
+# TODO: make a separte class only for NEAT
+
 class LifelongEvoSwarmExperiment:
 
     def __init__(self,
-                evolutionary_algorithm : str = None,
                 name : str = None,
                 population_size : int = None,
-                controller_deap : neural_controller.NeuralController = None,
                 env : environment.SwarmForagingEnv = None,
                 env_initial_state : dict = None,
                 config_neat : neat.config.Config = None,
-                reg_lambdas : dict = {"gd": 6.0, "wp": [0.4, 0.3]}, 
+                reg_lambdas : dict = {"gd": 6.0, "wp": [0.4, 0.3], "functional": 0.5}, 
                 seed : int = None,
                 n_env : int = 1, # Number of environments for evaluating fitness
                 n_workers : int = 1
                 ):
         
-        self.evolutionary_algorithm = evolutionary_algorithm
         self.name = name
         self.population_size = population_size
         self.env = env
         self.env_initial_state = env_initial_state
-        self.controller_deap = controller_deap
         self.config_neat = config_neat
         self.reg_lambdas = reg_lambdas
         self.seed = seed
@@ -63,16 +55,27 @@ class LifelongEvoSwarmExperiment:
             self.target_color = None
         self.prev_target_color = None
 
-        # they are set when calling run method TODO: maybe init?? n_workers yes but the other no bc the change between runs
         available_cores = multiprocessing.cpu_count()
         self.n_workers = n_workers if n_workers <= available_cores else available_cores
+
         self.n_env = n_env
 
         self.eval_retention = None
         self.regularization_retention = None
-        self.retention_pop_fitness = []
-        self.retention_top_fitness = []
-        self.fitness_no_penalty = []
+        
+        self.logbook_generations = []
+        self.logbook_summary = {
+            "best": [],
+            "no_penalty": [],
+            "id_best": [],
+            "avg": [],
+            "median": [],
+            "std": [],
+            "retention_top": [],
+            "id_retention_top": [],
+            "retention_pop": [],
+            "id_retention_pop": [],
+        }
     
     def load(self, folder_path):
         # Print files in the path
@@ -94,7 +97,6 @@ class LifelongEvoSwarmExperiment:
         with open(folder_path + '/population.pkl', 'rb') as f:
             self.population = pickle.load(f)
         # Set attributes
-        self.evolutionary_algorithm = experiment["algorithm"]
         self.steps = experiment["ep_duration"]
         # self.generations = experiment["generations"]
         self.population_size = experiment["population_size"]
@@ -106,20 +108,25 @@ class LifelongEvoSwarmExperiment:
         self.prev_target_color = experiment["prev_target_color"]
         # self.prev_target = experiment["target_color"]
         # Other loads
-        if self.evolutionary_algorithm == "neat":
-            with open(folder_path + '/neat_config.pkl', 'rb') as f:
-                self.config_neat = pickle.load(f)
-        elif self.evolutionary_algorithm in DEAP_ALGORITHMS:
-            with open(folder_path + '/controller.pkl', 'rb') as f:
-                self.controller_deap = pickle.load(f)
+        with open(folder_path + '/neat_config.pkl', 'rb') as f:
+            self.config_neat = pickle.load(f)
+
     
     def drift(self, new_target, env_initial_state = None):
-        if self.evolutionary_algorithm != "neat":
-            raise ValueError(f"Drifts are implemented only for NEAT. Got {self.evolutionary_algorithm}.")
         
-        self.retention_pop_fitness = []
-        self.retention_top_fitness = []
-        self.fitness_no_penalty = []
+        self.logbook_generations = []
+        self.logbook_summary = {
+            "best": [],
+            "no_penalty": [],
+            "id_best": [],
+            "avg": [],
+            "median": [],
+            "std": [],
+            "retention_top": [],
+            "id_retention_top": [],
+            "retention_pop": [],
+            "id_retention_pop": [],
+        }
         self.experiment_name = f"{self.experiment_name}_drift{self.target_color}{new_target}"
         self.prev_target_color = self.target_color
         self.target_color = new_target
@@ -130,8 +137,18 @@ class LifelongEvoSwarmExperiment:
         if env_initial_state is not None:
             self.env_initial_state = env_initial_state
     
-    def _run_episode(self, genome, config, env):
+    def _evaluate_genome(self, genome, config, env, regularization = None):
+        
+        if regularization not in [None, "genetic_distance", "weight_protection", "gd", "wp", "functional"]:
+            raise ValueError("Regularization must be one of: genetic_distance, weight_protection, gd, wp, functional.")
+        if regularization is not None and self.best_individual is None:
+            raise ValueError("Best individual is not set. Run the evolutionary algorithm first.")
+
         net = neat.nn.FeedForwardNetwork.create(genome, config)
+        
+        if regularization== "functional":
+            prev_net = neat.nn.FeedForwardNetwork.create(self.best_individual, config)
+            penalty_functional = 0.0
         
         if self.n_env == 1:
             environment_seeds = [self.seed]
@@ -147,32 +164,75 @@ class LifelongEvoSwarmExperiment:
             while True:
                 nn_inputs = env.process_observation(obs)
                 nn_outputs = np.array([net.activate(nn_input) for nn_input in nn_inputs])
+
                 actions = (2 * nn_outputs - 1) * env.max_wheel_velocity
 
                 obs, reward, done, truncated, _ = env.step(actions)
+
                 fitness += reward
+
+                if regularization == "functional":
+                    prev_nn_outputs = np.array([prev_net.activate(nn_input) for nn_input in nn_inputs])
+                    penalty_functional += np.sum(np.abs(nn_outputs - prev_nn_outputs))
 
                 if done or truncated:
                     break
-            
+
             fitnesses.append(fitness)
         
-        return np.mean(fitnesses)
+        
+        # ----- REGULARIZATION -----
+        # Genetic distance penalty
+        if regularization == "gd" or self.regularization_retention == "genetic_distance":
+            penalty_distance = 0.0
+            config.compatibility_weight_coefficient = 0.6
+            config.compatibility_disjoint_coefficient = 1.0
+            penalty_distance += self.best_individual.distance(genome, config)
 
-    
-    def _evaluate_genomes_batch(self, genomes, config, env):
+            penalty = self.reg_lambdas.get('gd') * penalty_distance
+                
+        # Weight protection penalty
+        if self.regularization_retention == "wp" or self.regularization_retention == "weight_protection":
+            penalty_wp1 = 0.0
+            penalty_wp2 = 0.0
+            for c in genome.connections:
+                if c in self.best_individual.connections:
+                    penalty_wp1 += (self.best_individual.connections[c].weight - genome.connections[c].weight) **2
+                else:
+                    penalty_wp2 += genome.connections[c].weight ** 2
+
+            penalty = self.reg_lambdas.get('wp')[0] * penalty_wp1 + self.reg_lambdas.get('wp')[1] * penalty_wp2
+        
+                # Functional penalty
+        if regularization == "functional":
+            penalty = penalty_functional / len(environment_seeds) / env.duration
+        # ---------------------------
+        
+        # The fitness is the mean over the various environments
+        genome_fitness = np.mean(fitnesses)
+        
+        # Apply the penalty
+        if regularization is not None:
+            genome_penalized_fitness = genome_fitness - penalty
+        else:
+            genome_penalized_fitness = None
+        
+        return genome_fitness, genome_penalized_fitness
+
+    def _evaluate_genomes_batch(self, genomes, config, env, regularization = None):
         results = []
         
         for genome_id, genome in genomes:
-            fitness = self._run_episode(genome, config, env)
+            fitness, penalized_fitness = self._evaluate_genome(genome, config, env, regularization)
 
-            results.append((genome_id, fitness))
+            results.append((genome_id, [fitness, penalized_fitness]))
         
         return results
 
-    # TODO: rename a bit, run evaluate and calculate... choose one
-    
-    def _calculate_fitness_neat(self, genomes, config):
+    def _evaluate_fitness(self, genomes, config):
+        
+        population_stats = {} # key: id, value: fitness, adjusted fitness, retention fitness
+        
         self.env.target_color = self.target_color
 
         if self.n_workers > 1:
@@ -182,112 +242,100 @@ class LifelongEvoSwarmExperiment:
             genome_batches = [genomes[i:i + batch_size] for i in range(0, len(genomes), batch_size)]
 
             with ProcessPoolExecutor(max_workers=self.n_workers) as executor:
-                futures = [executor.submit(self._evaluate_genomes_batch, batch, config, env_parallel) 
-                           for batch in genome_batches]
+                futures = [executor.submit(self._evaluate_genomes_batch, batch, config, env_parallel, self.regularization_retention) 
+                        for batch in genome_batches]
                 results = []
                 for future in as_completed(futures):
                     results.extend(future.result())
             
             fitness_map = dict(results)
             for genome_id, genome in genomes:
-                genome.fitness = fitness_map[genome_id]
+                fitness, penalized_fitness = fitness_map[genome_id]
+                if penalized_fitness is not None:
+                    genome.fitness = penalized_fitness # If regularization is applied use penalized fitness
+                    population_stats[genome_id] = [fitness, penalized_fitness] # fitness, adjusted fitness
+                else:
+                    genome.fitness = fitness
+                    population_stats[genome_id] = [fitness] # fitness, adjusted fitness
             # -------------------------------
         else:
             # ----- SEQUENTIAL EVALUATION -----
             for genome_id, genome in genomes:
-                genome.fitness = self._run_episode(genome, config, self.env)
+                fitness, penalized_fitness = self._evaluate_genome(genome, config, self.env, self.regularization_retention)
+                if penalized_fitness is not None:
+                    genome.fitness = penalized_fitness # If regularization is applied use penalized fitness
+                    population_stats[genome_id] = [fitness, penalized_fitness] # fitness, adjusted fitness
+                else:
+                    genome.fitness = fitness
+                    population_stats[genome_id] = [fitness] # fitness
             # -------------------------------
         
-        # ----- REGULARIZATION -----
-        if self.regularization_retention is not None and self.best_individual is not None:
-            # Save max fitness without penalty
-            self.fitness_no_penalty.append(max([genome.fitness for _, genome in genomes]))
-            
-            for _, genome in genomes:
-                
-                # Genetic distance penalty
-                if self.regularization_retention == "gd" or self.regularization_retention == "genetic_distance":
-                    penalty_distance = 0.0
-                    config.compatibility_weight_coefficient = 0.6
-                    config.compatibility_disjoint_coefficient = 1.0
-                    penalty_distance += self.best_individual.distance(genome, config)
-
-                    reg_penalty = self.reg_lambdas.get('gd') * penalty_distance
-                
-                # Weight protection penalty
-                if self.regularization_retention == "wp" or self.regularization_retention == "weight_protection":
-                    penalty_wp1 = 0.0
-                    penalty_wp2 = 0.0
-                    for c in genome.connections:
-                        if c in self.best_individual.connections:
-                            penalty_wp1 += (self.best_individual.connections[c].weight - genome.connections[c].weight) **2
-                        else:
-                            penalty_wp2 += genome.connections[c].weight ** 2
-
-                    reg_penalty = self.reg_lambdas.get('wp')[0] * penalty_wp1 + self.reg_lambdas.get('wp')[1] * penalty_wp2
-
-                # TODO: functional regularization
-
-                genome.fitness -= reg_penalty # Apply the penalty
-        # ---------------------------
+        best_genome = max(genomes, key=lambda x: x[1].fitness)
+        self.logbook_summary["best"].append(best_genome[1].fitness)
+        self.logbook_summary["id_best"].append(best_genome[0])
         
-        # ----- EVALUATE RETAINING -----
+        if self.regularization_retention is not None:
+            self.logbook_summary["no_penalty"].append(population_stats[best_genome[0]][1])
+        
+        # ----- EVALUATE RETENTION -----
         if self.eval_retention is not None and self.prev_target_color is not None:
             # Evaluate genomes on the previous task
             if (self._current_generation % FREQUENCY_EVAL_RETENTION == 0
                 or self._current_generation == self._generations - 1): # Evaluate at frequency
+                
                 self.env.target_color = self.prev_target_color
-                eval_genomes = copy.deepcopy(genomes)
+                
+                if "population" in self.eval_retention or "pop" in self.eval_retention:
+                    eval_genomes = copy.deepcopy(genomes)
+                    # Find the best genome on the previous task, reevaluate the population
+                    if self.n_workers > 1:
+                        # Parallel evaluation
+                        # TODO: maybe dont repeat this code
+                        env_parallel = copy.deepcopy(self.env)
+                        batch_size = max(1, len(genomes) // self.n_workers)
+                        genome_batches = [genomes[i:i + batch_size] for i in range(0, len(genomes), batch_size)]
+
+                        with ProcessPoolExecutor(max_workers=self.n_workers) as executor:
+                            futures = [executor.submit(self._evaluate_genomes_batch, batch, config, env_parallel) 
+                                    for batch in genome_batches]
+                            results = []
+                            for future in as_completed(futures):
+                                results.extend(future.result())
+                        
+                        fitness_map = dict(results)
+                        for genome_id, genome in genomes:
+                            retention_fitness, _ = fitness_map[genome_id]
+                            genome.fitness = retention_fitness
+                            population_stats[genome_id].append(retention_fitness) # add retention to stats
+                    else:
+                        # Sequential evaluation
+                        for _, genome in eval_genomes:
+                            retention_fitness, _ = self._evaluate_genome(genome, config, self.env)
+                            genome.fitness = retention_fitness
+                            population_stats[genome_id].append(retention_fitness) # add retention to stats
+
+                    eval_genomes.sort(key=lambda x: x[1].fitness, reverse=True) # Take the best genome for retention
+                    id_retenion_pop = eval_genomes[0][0]
+                    retention_pop = eval_genomes[0][1].fitness
+                    self.logbook_summary["retention_pop"].append(retention_pop)
+                    self.logbook_summary["id_retention_pop"].append(id_retenion_pop)
+                    print(f"Retention_pop: {retention_pop}")
 
                 if "top" in self.eval_retention:
-                    # Take top current genome
+                    eval_genomes = copy.deepcopy(genomes)
+                    # Take top current genome and evaluate on the previous task
                     eval_genomes.sort(key=lambda x: x[1].fitness, reverse=True)
+                    id_top_genome = eval_genomes[0][0]
                     top_genome = eval_genomes[0][1]
-                    retention_top = self._run_episode(top_genome, config, self.env) 
-                    print(f"Retention_top: {retention_top}")
-                    self.retention_top_fitness.append(retention_top)
-                    
-                if "population" in self.eval_retention or "pop" in self.eval_retention: 
-                    # Find the best genome on the previous task
-                    for _, genome in eval_genomes:
-                        genome.fitness = self._run_episode(genome, config, self.env)
-                    eval_genomes.sort(key=lambda x: x[1].fitness, reverse=True)
-                    retention_pop = eval_genomes[0][1].fitness
-                    print(f"Retention_pop: {retention_pop}")
-                    self.retention_pop_fitness.append(retention_pop)
+                    retention_top, _ = self._evaluate_genome(top_genome, config, self.env) 
+                    self.logbook_summary["retention_top"].append(retention_top)
+                    self.logbook_summary["id_retention_top"].append(id_top_genome)     
+                    print(f"Retention_top: {retention_top}")      
         # -------------------------------
         
+        self.logbook_generations.append(population_stats)
+
         self._current_generation += 1
-    
-    def _calculate_fitness_deap(self, individual):
-
-        if self.n_env == 1:
-            environment_seeds = [self.seed]
-        else:
-            environment_seeds = [random.randint(0, 1000000) for _ in range(self.n_env)]
-        fitnesses = []
-        
-        for seed in environment_seeds:
-            fitness = 0.0
-            obs, _ = self.env.reset(seed=seed, initial_state=self.env_initial_state)
-            
-            self.controller_deap.set_weights_from_vector(individual) # Set the weights of the network
-            
-            while True:
-                nn_inputs = self.env.process_observation(obs)
-                nn_outputs = np.array(self.controller_deap.predict(nn_inputs))
-                actions = (2 * nn_outputs - 1) * self.env.max_wheel_velocity # Scale output sigmoid in range of wheel velocity
-                    
-                obs, reward, done, truncated, _ = self.env.step(actions)
-
-                fitness += reward
-
-                if done or truncated:
-                    break
-            
-            fitnesses.append(fitness)
-
-        return [float(np.mean(fitnesses))]
     
     def _run_neat(self, generations):
         self._generations = generations
@@ -302,120 +350,10 @@ class LifelongEvoSwarmExperiment:
 
         start = time.time()
         # Run NEAT
-        self.best_individual = self.population.run(self._calculate_fitness_neat, generations)
+        self.best_individual = self.population.run(self._evaluate_fitness, generations)
         end = time.time()
         self.time_elapsed = end - start
         self.log = stats
-    
-    def _run_ga(self, generations):
-        if self.controller_deap is None:
-            raise ValueError("DEAP controller is not set. Set the controller first.")
-        
-        # Set up the fitness and individual
-        creator.create("FitnessMax", base.Fitness, weights=(1.0,))  # Maximization problem
-        creator.create("Individual", list, fitness=creator.FitnessMax)
-        toolbox_deap = base.Toolbox()
-        toolbox_deap.register("evaluate", self._calculate_fitness_deap)  # Evaluation function
-        toolbox_deap.register("attr_float", random.uniform, -1.0, 1.0)  # Attribute generator
-        toolbox_deap.register("individual", tools.initRepeat, creator.Individual,
-                        toolbox_deap.attr_float, n=self.controller_deap.total_weights)  # Individual generator
-        toolbox_deap.register("population", tools.initRepeat, list, toolbox_deap.individual)
-        toolbox_deap.register("select", tools.selTournament, tournsize=max(1, int(self.population_size*0.03)))  # Selection function
-        # toolbox.register("select", selElitistAndTournament)  # Selection function
-        toolbox_deap.register("mate", tools.cxTwoPoint)  # Crossover function
-        # toolbox.register("mate", tools.cxOnePoint)  # Crossover function
-        # toolbox.register("mate", tools.cxUniform, indpb=0.5)  # 50% chance for each weight
-        toolbox_deap.register("mutate", tools.mutGaussian, mu=0, sigma=1, indpb=0.1)  # Mutation function
-
-        stats = tools.Statistics(lambda ind: ind.fitness.values)
-        stats.register("best", np.max)
-        stats.register("avg", np.mean)
-        stats.register("median", np.median)
-        stats.register("std", np.std)
-        stats.register("worst", np.min)
-        
-        self.population = toolbox_deap.population(n=self.population_size)  # Create a new population 
-        
-        hof = tools.HallOfFame(2)  # Hall of fame to store the best individual
-
-        start = time.time()
-        # Run the genetic algorithm
-        self.population, log = algorithms.eaSimple(self.population, toolbox_deap, cxpb=0.8, mutpb=0.05,
-                                                    ngen=generations, stats=stats, halloffame=hof, verbose=True)
-        end = time.time()
-        
-        self.best_individual = hof[0]
-        self.time_elapsed = end - start
-        self.log = log
-
-    def _run_cmaes(self, generations):
-        if self.controller_deap is None:
-            raise ValueError("DEAP controller is not set. Set the controller first.")
-        
-        creator.create("FitnessMax", base.Fitness, weights=(1.0,))  # Maximization problem
-        creator.create("Individual", list, fitness=creator.FitnessMax)
-        toolbox_deap = base.Toolbox()
-        toolbox_deap.register("evaluate", self._calculate_fitness_deap)
-        # Strategy parameters for CMA-ES
-        strategy = cma.Strategy(centroid=[0.0]*self.controller_deap.total_weights, sigma=5.0, lambda_=self.population_size)
-        toolbox_deap.register("generate", strategy.generate, creator.Individual)
-        toolbox_deap.register("update", strategy.update)
-
-        stats = tools.Statistics(lambda ind: ind.fitness.values)
-        stats.register("best", np.max)
-        stats.register("avg", np.mean)
-        stats.register("median", np.median)
-        stats.register("std", np.std)
-        stats.register("worst", np.min)
-
-        hof = tools.HallOfFame(2)
-        
-        start = time.time()
-        self.population, log = algorithms.eaGenerateUpdate(toolbox_deap, ngen=generations, stats=stats, halloffame=hof)
-        end = time.time()
-        
-        self.best_individual = hof[0]
-        self.time_elapsed = end - start
-        self.log = log
-
-    def _run_evostick(self, generations):
-        if self.controller_deap is None:
-            raise ValueError("DEAP controller is not set. Set the controller first.")
-        
-        n_elite = max(1, int(0.2 * self.population_size)) # 20% of the population will be copied to the next generation (elitism)
-
-        creator.create("FitnessMax", base.Fitness, weights=(1.0,))  # Maximization problem
-        creator.create("Individual", list, fitness=creator.FitnessMax)
-        toolbox_deap = base.Toolbox()
-        toolbox_deap.register("evaluate", self._calculate_fitness_deap)  # Evaluation function
-        toolbox_deap.register("attr_float", random.uniform, -1.0, 1.0)  # Attribute generator
-        toolbox_deap.register("individual", tools.initRepeat, creator.Individual,
-                        toolbox_deap.attr_float, n=self.controller_deap.total_weights)  # Individual generator
-        toolbox_deap.register("population", tools.initRepeat, list, toolbox_deap.individual)
-        toolbox_deap.register("select", tools.selBest, k=n_elite)  # Select top 20 individuals
-        toolbox_deap.register("mutate", tools.mutGaussian, mu=0, sigma=1, indpb=1.0)
-        toolbox_deap.register("map", map)
-
-        stats = tools.Statistics(lambda ind: ind.fitness.values) # Statistics to keep track of the evolution
-        stats.register("best", np.max)
-        stats.register("avg", np.mean)
-        stats.register("median", np.median)
-        stats.register("std", np.std)
-        stats.register("worst", np.min)
-
-        if self.population is None:
-            self.population = toolbox_deap.population(n=self.population_size)  # Create a new population 
-        
-        hof = tools.HallOfFame(n_elite)  # Hall of fame to store the best individual
-
-        start = time.time()
-        # Run the genetic algorithm
-        self.population, log = eaEvoStick(self.population, toolbox_deap, generations, stats=stats, halloffame=hof, verbose=True)
-        end = time.time()
-
-        self.best_individual = hof[0]
-        self.time_elapsed = end - start
-        self.log = log
 
     def run_best(self, on_prev_env = None, save = True, verbose = False):
         # TODO: make it prettier
@@ -430,17 +368,8 @@ class LifelongEvoSwarmExperiment:
             raise ValueError("Population is not set. Set it first.")
         if on_prev_env is not None and on_prev_env not in ["top", "population", "pop"]:
             raise ValueError("On previous environment must be one of: top, population/pop.")
-        if on_prev_env is not None and self.evolutionary_algorithm != "neat":
-            raise ValueError(f"Evaluation of retention available only for NEAT. Got {self.evolutionary_algorithm}")
-        
-        # Set up the neural network controller
-        if self.evolutionary_algorithm == 'neat':
-            if self.config_neat is None:
-                raise ValueError("Neat config path is not set. Set the path to the config file first.")
-        elif self.evolutionary_algorithm in DEAP_ALGORITHMS:
-            if self.controller_deap is None:
-                raise ValueError("DEAP controller is not set. Set the controller first.")
-            # self.controller_deap.set_weights_from_vector(self.best_individual)
+        if self.config_neat is None:
+            raise ValueError("Neat config path is not set. Set the path to the config file first.")
         
         genome_run = self.best_individual
         self.env.target_color = self.target_color
@@ -453,15 +382,12 @@ class LifelongEvoSwarmExperiment:
                 
                 # Find the best genome on the previous task
                 for _, genome in genomes:
-                    genome.fitness = self._run_episode(genome, self.config_neat, self.env)
+                    genome.fitness = self._evaluate_genome(genome, self.config_neat, self.env)
                 
                 genomes.sort(key=lambda x: x[1].fitness, reverse=True)
                 genome_run = genomes[0][1]
         
-        if self.evolutionary_algorithm == 'neat':
-            controller_neat = neat.nn.FeedForwardNetwork.create(genome_run, self.config_neat)
-        elif self.evolutionary_algorithm in DEAP_ALGORITHMS:
-            self.controller_deap.set_weights_from_vector(genome_run)
+        controller = neat.nn.FeedForwardNetwork.create(genome_run, self.config_neat)
 
         frames = []
         done = False
@@ -471,10 +397,7 @@ class LifelongEvoSwarmExperiment:
         while True:
             inputs = self.env.process_observation(obs)
             
-            if self.evolutionary_algorithm == 'neat':
-                outputs = np.array([controller_neat.activate(input) for input in inputs])
-            elif self.evolutionary_algorithm in DEAP_ALGORITHMS:
-                outputs = np.array(self.controller_deap.predict(inputs))
+            outputs = np.array([controller.activate(input) for input in inputs])
 
             actions = (2 * outputs - 1) * self.env.max_wheel_velocity # Scale output sigmoid in range of wheel velocity
 
@@ -496,27 +419,14 @@ class LifelongEvoSwarmExperiment:
     
     def _save_results(self):
         # Plot stats
-        if self.evolutionary_algorithm == "neat":
-            
-            bests = self.log.get_fitness_stat(np.max)
-            avgs = self.log.get_fitness_mean()
-            medians = self.log.get_fitness_median()
-            stds = self.log.get_fitness_stdev()
-        elif self.evolutionary_algorithm in DEAP_ALGORITHMS:
-            bests = []
-            avgs = []
-            stds = []
-            medians = []
-            for stat in self.log:
-                bests.append(stat['best'])
-                avgs.append(stat['avg'])
-                stds.append(stat['std'])
-                medians.append(stat['median'])
+        bests = self.log.get_fitness_stat(np.max)
+        avgs = self.log.get_fitness_mean()
+        medians = self.log.get_fitness_median()
+        stds = self.log.get_fitness_stdev()        
         
         # TODO: check this and maybe change
         plot_evolution(bests, avgs = avgs, medians = medians, 
                        filename = f"results/{self.experiment_name}/evolution_plot.png")
-        
         
         total_reward, info = self.run_best(save = True)
         
@@ -530,19 +440,14 @@ class LifelongEvoSwarmExperiment:
             info_retention_population = None
 
         # Stats
-        logbook = {
-            "best": bests,
-            "avg": avgs,
-            "median": medians,
-            "std": stds,
-            "retention_top": self.retention_top_fitness,
-            "retention_pop": self.retention_pop_fitness,
-            "no_penalty": self.fitness_no_penalty,
-        }
+        self.logbook_summary["avg"] = avgs
+        self.logbook_summary["median"] = medians
+        self.logbook_summary["std"] = stds
+
         # Experiment info
-        experiment = {
+        experiment_info = {
             "name": self.experiment_name,
-            "algorithm": self.evolutionary_algorithm,
+            "algorithm": "neat",
             "generations":len(bests),
             "ep_duration": self.env.duration,
             "population_size": self.population_size,
@@ -555,12 +460,17 @@ class LifelongEvoSwarmExperiment:
             "n_colors": self.env.n_colors,
             "repositioning": self.env.repositioning,
             "blocks_in_line": self.env.blocks_in_line,
+            "max_wheel_velocity": self.env.max_wheel_velocity,
+            "sensor_range": self.env.sensor_range,
+            "arena_size": self.env.size,
+            "n_workers": self.n_workers,
             "n_env": self.n_env,
             "seed": self.seed,
             "best": bests[-1],
-            "no_penalty": self.fitness_no_penalty[-1] if self.fitness_no_penalty else None,
-            "retention_top": self.retention_top_fitness[-1] if self.retention_top_fitness else None,
-            "retention_pop": self.retention_pop_fitness[-1] if self.retention_pop_fitness else None,
+            "id_best": self.logbook_summary["id_best"][-1],
+            "no_penalty": self.logbook_summary["no_penalty"][-1] if self.logbook_summary["no_penalty"] else None,
+            "retention_top": self.logbook_summary["retention_top"][-1] if self.logbook_summary["retention_top"] else None,
+            "retention_pop": self.logbook_summary["retention_pop"][-1] if self.logbook_summary["retention_pop"] else None,
             "test_fitness": total_reward,
             "info": info,
             "correct_retrieves": len(info["correct_retrieves"]),
@@ -578,12 +488,16 @@ class LifelongEvoSwarmExperiment:
             "regularization_lambdas": self.reg_lambdas,
             "time": self.time_elapsed,
         }
-        # Save the logbook as json
-        with open(f"results/{self.experiment_name}/logbook.json", "w") as f:
-            json.dump(logbook, f, indent=4)
+        # Save the logbooks as json
+        with open(f"results/{self.experiment_name}/logbook_summary.json", "w") as f:
+            json.dump(self.logbook_summary, f, indent=4)
+        with open(f"results/{self.experiment_name}/logbook_generations.json", "w") as f:
+            json.dump(self.logbook_generations, f, indent=4)
+        with open(f"results/{self.experiment_name}/logbook_species.json", "w") as f:
+            json.dump(self.log.generation_statistics, f, indent=4)
         # Save experiment info as json
-        with open(f"results/{self.experiment_name}/experiment.json", "w") as f:
-            json.dump(experiment, f, indent=4)
+        with open(f"results/{self.experiment_name}/info.json", "w") as f:
+            json.dump(experiment_info, f, indent=4)
         # Save the environment as pickle
         with open(f"results/{self.experiment_name}/env.pkl", "wb") as f:
             pickle.dump(self.env, f)
@@ -593,14 +507,10 @@ class LifelongEvoSwarmExperiment:
         # Save the population as pickle
         with open(f"results/{self.experiment_name}/population.pkl", "wb") as f:
             pickle.dump(self.population, f)
-        if self.evolutionary_algorithm == "neat":
-            # Save the neat config file
-            with open(f"results/{self.experiment_name}/neat_config.pkl", "wb") as f:
-                pickle.dump(self.config_neat, f)
-        elif self.evolutionary_algorithm in DEAP_ALGORITHMS:
-            # Save the deap controller
-            with open(f"results/{self.experiment_name}/controller.pkl", "wb") as f:
-                pickle.dump(self.controller_deap, f)
+        # Save the neat config file
+        with open(f"results/{self.experiment_name}/neat_config.pkl", "wb") as f:
+            pickle.dump(self.config_neat, f)
+        
     
     # TODO: change name of parameters
     def run(self, generations, eval_retention = None, regularization_retention = None):
@@ -608,8 +518,6 @@ class LifelongEvoSwarmExperiment:
             raise ValueError("Name is not set. Set the name of the experiment first.")
         if self.env is None:
             raise ValueError("Environment is not set. Set the environment first.")
-        if self.evolutionary_algorithm is None:
-            raise ValueError("Evolutionary algorithm is not set. Set the evolutionary algorithm first.")
         if self.population_size is None:
             raise ValueError("Population size is not set. Set the population size first.")
         if eval_retention is not None:
@@ -619,12 +527,14 @@ class LifelongEvoSwarmExperiment:
         if eval_retention is not None and self.experiment_name is None:
             raise ValueError("Evaluation of retention not available for static environemnt (before drifts).")
         if regularization_retention is not None:
-            if regularization_retention not in ["gd", "wp", "genetic_distance", "weight_protection"]:
-                    raise ValueError("Regularization of retention must be one of: gd, wp, genetic_distance, weight_protection.")
+            if regularization_retention not in ["gd", "wp", "genetic_distance", "weight_protection", "functional"]:
+                    raise ValueError("Regularization of retention must be one of: gd, wp, genetic_distance, weight_protection, functional.")
         if regularization_retention is not None and self.experiment_name is None:
             raise ValueError("Regularization for retention not available for static environemnt (before drifts).")
-        if (eval_retention is not None or regularization_retention is not None) and self.evolutionary_algorithm != "neat": 
-            raise ValueError(f"Regularization/Evaluation of retention available only for NEAT. Got {self.evolutionary_algorithm}")
+        if regularization_retention is not None and self.reg_lambdas is None:
+            raise ValueError("Regularization lambdas are not set. Set the regularization lambdas first.")
+        if regularization_retention is not None and self.best_individual is None:
+            raise ValueError("Best individual is not set. Run the evolutionary algorithm first (e.g. a static evolution to save a reference model).")
         
         self.eval_retention = eval_retention
         self.regularization_retention = regularization_retention
@@ -632,14 +542,13 @@ class LifelongEvoSwarmExperiment:
         if self.experiment_name is None:
             distribution_str = "u" if self.env.distribution == "uniform" else "b"
             self.experiment_name = f"{self.name}" \
-                f"/{self.evolutionary_algorithm}_{self.env.duration}_{generations}_{self.population_size}_{self.env.n_agents}_{self.env.n_blocks}_{distribution_str}" \
+                f"/neat_{self.env.duration}_{generations}_{self.population_size}_{self.env.n_agents}_{self.env.n_blocks}_{distribution_str}" \
                 f"/seed{self.seed}/static{self.target_color}" # First evolution (no drift - static)
         
         os.makedirs(f"results/{self.experiment_name}", exist_ok=True) # Create directory for the experiment results
     
-
         print(f"\n{self.experiment_name}")
-        print(f"Running {self.evolutionary_algorithm} with with the following parameters:")
+        print(f"Running neat with with the following parameters:")
         print(f"Name: {self.name}")
         print(f"Duration of episode: {self.env.duration} in steps (one step is {environment.TIME_STEP} seconds)")
         print(f"Number of generations: {generations}")
@@ -647,6 +556,11 @@ class LifelongEvoSwarmExperiment:
         print(f"Number of agents: {self.env.n_agents}")
         print(f"Number of blocks: {self.env.n_blocks}")
         print(f"Distribution of blocks: {self.env.distribution}")
+        print(f"N colors: {self.env.n_colors}")
+        print(f"Repositioning: {self.env.repositioning}")
+        print(f"Blocks in line: {self.env.blocks_in_line}")
+        print(f"Number of environments for evaluation: {self.n_env}")
+        print(f"Number of workers: {self.n_workers}")
         print(f"Seed: {self.seed}")
         
         # Set the seed for reproducibility
@@ -656,15 +570,6 @@ class LifelongEvoSwarmExperiment:
         self.env.reset(seed=self.seed, initial_state=self.env_initial_state)
         self.env.render() # Show the environment
 
-        if self.evolutionary_algorithm == "neat":
-            self._run_neat(generations)
-        elif self.evolutionary_algorithm == "ga":
-            self._run_ga(generations)
-        elif self.evolutionary_algorithm == "cma-es":
-            self._run_cmaes(generations)
-        elif self.evolutionary_algorithm == "evostick":
-            self._run_evostick(generations)
-        else:
-            raise ValueError(f"Evolutionary algorithm must be one of {EVOLUTIONARY_ALGORITHMS}")
+        self._run_neat(generations)
         
         self._save_results()
