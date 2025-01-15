@@ -13,7 +13,7 @@ echo ${nodes_array[@]}
 
 # Launching different instances of the python script with different parameters
 echo "Launching Python scripts with different parameters:"
-srun --nodes=1 --ntasks=1 -w ${nodes_array[0]} python3.11 run_and_drift.py --name ll --generations 200 --population 500 --colors 2 --distribution biased --targets 3 4 3 --n_env 20 --eval_retention pop top --workers 64 --seed 13 &
-srun --nodes=1 --ntasks=1 -w ${nodes_array[1]} python3.11 run_and_drift.py --name ll --generations 200 --population 500 --colors 2 --distribution biased --targets 3 4 3 --n_env 20 --eval_retention pop top --workers 64 --seed 42 &
-srun --nodes=1 --ntasks=1 -w ${nodes_array[2]} python3.11 run_and_drift.py --name ll --generations 200 --population 500 --colors 2 --distribution biased --targets 3 4 3 --n_env 20 --eval_retention pop top --workers 64 --seed 69 &
+srun --nodes=1 --ntasks=1 -w ${nodes_array[0]} python3.11 run_and_drift.py --name ll --generations 200 --population 300 --colors 2 --distribution biased --targets 3 4 3 --n_env 10 --eval_retention pop top --workers 64 --seed 13 &
+srun --nodes=1 --ntasks=1 -w ${nodes_array[1]} python3.11 run_and_drift.py --name ll --generations 200 --population 300 --colors 2 --distribution biased --targets 3 4 3 --n_env 10 --eval_retention pop top --workers 64 --seed 42 &
+srun --nodes=1 --ntasks=1 -w ${nodes_array[2]} python3.11 run_and_drift.py --name ll --generations 200 --population 300 --colors 2 --distribution biased --targets 3 4 3 --n_env 10 --eval_retention pop top --workers 64 --seed 69 &
 wait # Wait for all background jobs to finish

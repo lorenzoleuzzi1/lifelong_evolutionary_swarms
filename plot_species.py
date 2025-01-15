@@ -8,14 +8,13 @@ import pandas as pd
 import os
 import re
 from utils import load_logbook_json, load_experiment_json
-
+# TODO!!!!!
 y_index_map = {
     "fitness": 0,
-    "adjusted_fitness": 1,
-    "retention": 2
+    "retention": 1
 }
 
-# THIS THING CAN BE DONE OF A SINGLE RUN
+# THIS THING CAN BE DONE FOR A SINGLE RUN
 def plot_species(experiment_paths, experiment_name, y):
     """
     drifts must be in the format:
@@ -28,7 +27,7 @@ def plot_species(experiment_paths, experiment_name, y):
     if y != "size":
         y_index = y_index_map[y]
     # print(drifts)
-    
+    y_index = 1
     n_seeds = len(experiment_paths)
     for d in experiment_paths:
         if len(d) != len(experiment_paths[0]):
@@ -90,6 +89,48 @@ def plot_species(experiment_paths, experiment_name, y):
 
             generations_counters.append(generations_counter)
         
+        # Select best 5 species
+        best_species = {}
+
+        for species in log_to_plot:
+            if log_to_plot[species] == []:
+                continue
+            best_species[species] = log_to_plot[species][-1]
+
+        best_species = dict(sorted(best_species.items(), key=lambda item: item[1], reverse=True)[:5])
+
+        # Select worst 5 species
+        worst_species = {}
+
+        for species in log_to_plot:
+            if log_to_plot[species] == []:
+                continue
+            worst_species[species] = log_to_plot[species][-1]
+
+        worst_species = dict(sorted(worst_species.items(), key=lambda item: item[1], reverse=False)[:5])
+
+        # Plot the best species
+        for species in best_species:
+            plt.plot(generations_to_plot[species], log_to_plot[species], label=species)
+
+        # plt.xlabel('Generations')
+        # plt.ylabel(y)
+        # plt.title(f"Best Species {y}")
+        # plt.legend()
+        # plt.show()
+        # plt.close()
+
+        # Plot the worst species
+        for species in worst_species:
+            plt.plot(generations_to_plot[species], log_to_plot[species], label=species)
+
+        plt.xlabel('Generations')
+        plt.ylabel(y)
+        plt.title(f"Species {y}")
+        plt.legend()
+        plt.show()
+        plt.close()
+
         # Plot the species
         for species in log_to_plot:
             plt.plot(generations_to_plot[species], log_to_plot[species], label=species)
@@ -110,7 +151,7 @@ if __name__ == "__main__":
     parser.add_argument('y', type=str, help=f'The name of the y axis. Must be in fitness or size.')
     # seeds = range(10)
     # Define the directory containing the files
-    results_path = os.path.abspath("/Users/lorenzoleuzzi/Library/CloudStorage/OneDrive-UniversityofPisa/lifelong_evolutionary_swarms/results")
+    results_path = os.path.abspath("/Users/lorenzoleuzzi/Library/CloudStorage/OneDrive-UniversityofPisa/lifelong_evolutionary_swarms/results_")
     # results_path = "results"
     experiments_name = parser.parse_args().experiment_name
     y = parser.parse_args().y

@@ -118,19 +118,30 @@ class SwarmForagingEnv(gym.Env):
             time_step = TIME_STEP, # in seconds
             duration = 500, # Max number of steps for an episode
             max_retrieves = 20, # Max number of retrives for an episode
-            n_colors = 5, # Number of colors available in the environment
-            distribution = "uniform", # bBocks colors distribution
+            colors = [RED, BLUE], # List of colors for the blocks (from RED to n_colors)
+            # distribution = "uniform", # Blocks colors distribution
+            rate_target_block = 0.5, # Rate of target blocks
             repositioning = True, # Reposition blocks after each retrieve
             efficency_reward = False, # Reward for efficency (if task is completed before max steps)
             see_other_agents = True, # If agents can see other agents
             blocks_in_line = False # If blocks are in line
+            # TODO: rate target block
             ):
         
+        self.n_colors = len(colors) # Number of colors
         # --- Validate input parameters ---
-        if target_color < RED or target_color > RED + n_colors - 1:
-            raise ValueError("Invalid target color. Choose a color between 3 (red) and 3 + n_colors - 1")
-        if distribution not in ["uniform", "biased"]:
-            raise ValueError("Invalid distribution type. Choose between 'uniform' and 'biased'")
+        for color in colors:
+            if color not in [RED, BLUE, GREEN, YELLOW, PURPLE]:
+                raise ValueError("Invalid color. Choose a color between 3 (red) and 7 (purple)")
+        # No color repetition
+        if len(colors) != len(set(colors)):
+            raise ValueError("Invalid colors, repetition. Choose different colors")
+        if target_color not in colors:
+            raise ValueError("Invalid target color. Choose a color from the colors list, e.g. RED (3), BLUE (4), GREEN (5), YELLOW (6), PURPLE (7)")
+        # if distribution not in ["uniform", "biased"]:
+        #     raise ValueError("Invalid distribution type. Choose between 'uniform' and 'biased'")
+        if rate_target_block < 0.1 or rate_target_block > 1:
+            raise ValueError("Invalid rate of target blocks. Choose a number between 0.1 and 1")
         if n_agents < 1:
             raise ValueError("Invalid number of agents. Choose a number greater than 0")
         if n_blocks < 1:
@@ -149,16 +160,15 @@ class SwarmForagingEnv(gym.Env):
             raise ValueError("Invalid duration. Choose a number greater than 0")
         if max_retrieves < 1:
             raise ValueError("Invalid max retrieves. Choose a number greater than 0")
-        if n_colors < 1 or n_colors > 5:
+        if self.n_colors < 1 or self.n_colors > 5:
             raise ValueError("Invalid number of colors. Choose a number between 1 and 5")
-        if distribution not in ["uniform", "biased"]:
-            raise ValueError("Invalid distribution type. Choose between 'uniform' and 'biased'")
         # ---------------------------------
 
         # TODO: reorder the parameters
         self.nest = UP # The nest location (UP, DOWN, LEFT, RIGHT) TODO: maybe as parameter? Err its fine
         self.drop_zone = UP # The drop zone location (UP, DOWN, LEFT, RIGHT) TODO: maybe as parameter? Err its fine
         self.target_color = target_color 
+        self.colors = colors
         self._correct_retrieves = []
         self._wrong_retrieves = []
         
@@ -175,8 +185,7 @@ class SwarmForagingEnv(gym.Env):
         self.blocks_location = np.zeros((self.n_blocks, 2), dtype=float)
         self.blocks_color = np.zeros(self.n_blocks, dtype=int)
         self._blocks_picked_up = np.full(self.n_blocks, -1, dtype=int)
-        self.rate_target_block = 0.5
-        self.distribution = distribution
+        self.rate_target_block = rate_target_block
         self.repositioning = repositioning
         self.efficency_reward = efficency_reward
         self.see_other_agents = see_other_agents
@@ -210,10 +219,11 @@ class SwarmForagingEnv(gym.Env):
             YELLOW: "\033[93m",  # Yellow
             PURPLE: "\033[95m",  # Purple
         }
-        self.n_colors = n_colors
-        self._colors_map = {k: v for i, (k, v) in enumerate(self._colors_map.items()) if i < n_colors} # Select only the first n_colors
+        # self._colors_map = {k: v for i, (k, v) in enumerate(self._colors_map.items()) if i < self.n_colors} # Select only the first n_colors
+        # Select only the choosen colors
+        self._colors_map = {k: v for k, v in self._colors_map.items() if k in self.colors}
         self._reset_color = "\033[0m"  # Resets color to default
-        self.n_types = n_colors + 1 + 1 + 1 # colors, robot, edge, nothing
+        self.n_types = self.n_colors + 1 + 1 + 1 # colors, robot, edge, nothing
         
         # Action space
         single_action_space = spaces.Box(low=np.array([-max_wheel_velocity, -max_wheel_velocity, -max_wheel_velocity]), 
@@ -249,12 +259,14 @@ class SwarmForagingEnv(gym.Env):
         high = (self.size - 1, self.size - 1)
         blocks_locations = np.zeros((self.n_blocks, 2), dtype=float)
         blocks_colors = np.zeros(self.n_blocks, dtype=int)
+        
+        # Generate blocks locations
         if self.blocks_in_line:
-           
             if self.n_blocks > self.size / 2:  # Check if there's not to many blocks to put them in line
                 raise ValueError("Too many blocks to put them in line")
             
             for i in range(self.n_blocks):
+                # Generate locations
                 blocks_locations[i] = [self.size - (int(self.size / 4)), 
                                        i * (self.size / (self.n_blocks + 1)) + (self.size / (self.n_blocks + 1))]
                 while True:
@@ -263,33 +275,23 @@ class SwarmForagingEnv(gym.Env):
                     # Check if the new position is valid (not too close by another block) 2 units
                     if i == 0 or not np.any(np.linalg.norm(blocks_locations[i] - blocks_locations[:i], axis=1) < 2):
                         break
-                if self.distribution == "uniform":
-                    blocks_colors[i] = ((i + (self.target_color - RED)) % self.n_colors) + RED
-                elif self.distribution == "biased":
-                    if i < self.n_blocks * self.rate_target_block:
-                        blocks_colors[i] = self.target_color
-                    else:
-                        blocks_colors[i] = ((i + (self.target_color - RED)) % self.n_colors) + RED      
-                        while blocks_colors[i] == self.target_color:
-                            blocks_colors[i] = self._rng.integers(RED, RED + self.n_colors)
         else:
             for i in range(self.n_blocks):
+                # Generate locations
                 while True:
                     blocks_locations[i] = self._rng.integers(low, high, 2)
                     # Check if the new position is valid (not too close by another block) 2 units
                     if i == 0 or not np.any(np.linalg.norm(blocks_locations[i] - blocks_locations[:i], axis=1) < 2):
                         break
-                
-                if self.distribution == "uniform":
-                    blocks_colors[i] = ((i + (self.target_color - RED)) % self.n_colors) + RED # Uniform distribution of colors
-                elif self.distribution == "biased":
-                    if i < self.n_blocks * self.rate_target_block:
-                        blocks_colors[i] = self.target_color
-                    else:
-                        blocks_colors[i] = ((i + (self.target_color - RED)) % self.n_colors) + RED      
-                        while blocks_colors[i] == self.target_color:
-                            blocks_colors[i] = self._rng.integers(RED, RED + self.n_colors) # Random color different from the target color
         
+        # Generate colors
+        n_target_blocks = int(self.n_blocks * self.rate_target_block)
+        blocks_colors[:n_target_blocks] = self.target_color
+        colors_without_target = [color for color in self.colors if color != self.target_color]
+        blocks_colors[n_target_blocks:] = self._rng.choice(colors_without_target, self.n_blocks - n_target_blocks)
+        # Shuffle the colors
+        blocks_colors = self._rng.permutation(blocks_colors)
+
         # Agents
         agents_locations = np.zeros((self.n_agents, 2), dtype=float)
         agents_headings = np.zeros(self.n_agents, dtype=float)
@@ -513,6 +515,9 @@ class SwarmForagingEnv(gym.Env):
         self.current_step += 1
         
         return observations, reward, done, truncated, info
+    
+    def drift(self, colors):
+        self.colors = colors
 
     def render(self, verbose = True):
         # Define the size of the visualization grid
@@ -578,14 +583,19 @@ class SwarmForagingEnv(gym.Env):
         
         return observations_text
     
-    def process_observation(self, obs):
-        # Create structured arrays for batch processing
+    def process_observation(self, obs, one_hot = True):
+        # Create structured arrays 
         neighbors = np.array([agent['neighbors'] for agent in obs])
         heading = np.array([agent['heading'] for agent in obs])
         carrying = np.array([agent['carrying'] for agent in obs])
+        carrying[carrying == -1] = 0 # Change -1 to 0
+        task = np.array([self.target_color for _ in range(self.n_agents)])
         
-        # One-hot encode types
-        types = np.eye(self.n_types)[neighbors[:, :, 0].astype(int)]
+        if one_hot:
+            # One-hot encode types
+            types = np.eye(self.n_types)[neighbors[:, :, 0].astype(int)]
+        else:
+            types = neighbors[:, :, 0]
 
         # Normalize distances and directions
         distances = neighbors[:, :, 1] / self.sensor_range 
@@ -602,14 +612,14 @@ class SwarmForagingEnv(gym.Env):
         heading_sin = np.sin(np.radians(heading))
         heading_cos = np.cos(np.radians(heading))
 
-        # One-hot encode carrying status
-        # Carrying values range from -1 (not carrying) to max_carrying_id
-        carrying[carrying == -1] = 0 # Change -1 to 0
-        carrying[carrying > 0] = carrying[carrying > 0] - 2 # Change 3, 4, 5, ... to 1, 2, 3, ...
-        carrying_one_hot = np.eye(self.n_types - 2)[carrying]
-        # One hot encode for task label
-        task_one_hot = np.eye(self.n_colors)[self.target_color - 3] # 3 is the first color (RED)
-        task_one_hot = np.repeat(task_one_hot[np.newaxis, :], self.n_agents, axis=0) # Repeat the task label for all agents
+        if one_hot:
+            # One-hot encode carrying status
+            # Carrying values range from -1 (not carrying) to max_carrying_id
+            carrying[carrying > 0] = carrying[carrying > 0] - 2 # Change 3, 4, 5, ... to 1, 2, 3, ...
+            carrying = np.eye(self.n_types - 2)[carrying]
+            # One hot encode for task label
+            task = np.eye(self.n_colors)[self.target_color - 3] # 3 is the first color (RED)
+            task = np.repeat(task[np.newaxis, :], self.n_agents, axis=0) # Repeat the task label for all agents
 
         # Flatten all features and concatenate them into a single vector per agent
         flat_features = np.concatenate([
@@ -619,8 +629,8 @@ class SwarmForagingEnv(gym.Env):
             directions_cos.reshape(directions_cos.shape[0], -1),  # Flatten directions
             heading_sin.reshape(heading_sin.shape[0], -1),  # Flatten heading
             heading_cos.reshape(heading_cos.shape[0], -1),  # Flatten heading
-            carrying_one_hot,  # Already appropriate shape
-            task_one_hot
+            carrying.reshape(carrying.shape[0], -1),  # Flatten carrying
+            task.reshape(task.shape[0], -1)  # Flatten task
         ], axis=1) # TODO: is the order important?
 
         return flat_features

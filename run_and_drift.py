@@ -10,19 +10,18 @@ def main(name,
         population_size,
         n_agents, 
         n_blocks,
-        n_colors,
-        distribution,
+        colors,
         drifts,
-        n_env,
+        n_envs,
         eval_retention,
         regularization,
         lambdas,
         seed,
         workers, 
         ):
-    
-    env = SwarmForagingEnv(n_agents = n_agents, n_blocks = n_blocks, n_colors=n_colors,
-                           target_color=drifts[0], duration=steps, distribution=distribution)
+
+    env = SwarmForagingEnv(n_agents = n_agents, n_blocks = n_blocks, colors=colors,
+                           target_color=drifts[0], duration=steps)
     # initial_state, _ = env.reset(seed=seed)
     
     config_path_neat = "config-feedforward.txt"
@@ -38,8 +37,8 @@ def main(name,
     experiment = LifelongEvoSwarmExperiment(env = env, name = name, 
                                     population_size=population_size, 
                                     config_neat=config_neat, 
-                                    reg_lambdas=lambdas,
-                                    n_env=n_env,
+                                    # reg_lambdas=lambdas, # TODO: put lambad in .run
+                                    n_envs=n_envs,
                                     seed=seed,
                                     n_workers = workers)
 
@@ -49,7 +48,8 @@ def main(name,
         experiment.drift(drift)
         experiment.run(generations,
                        eval_retention = eval_retention, #TODO: maybe rename
-                       regularization_retention = regularization)
+                       regularization_type = regularization,
+                       regularization_coefficient=lambdas)
         
 if __name__ == "__main__":
 
@@ -60,11 +60,11 @@ if __name__ == "__main__":
     parser.add_argument('--population', type=int, default=300,help='The size of the population for the evolutionary algorithm.')
     parser.add_argument('--agents', type=int, default=5,help='The number of agents in the arena.')
     parser.add_argument('--blocks', type=int, default=20,help='The number of blocks in the arena.')
-    parser.add_argument('--colors', type=int, default=5,help='The number of colors available in the arena.')
-    parser.add_argument('--distribution', type=str, default="uniform", help='The distribution of the blocks in the arena. Must be one of: uniform or biased.')
-    parser.add_argument('--targets', type=int, nargs="*", default=[3], help='The targets and drifts (change of target color) to apply.')
-    parser.add_argument('--n_env', type=int, default=1, help='Number of environments to evaluate the fitness.')
-    parser.add_argument('--regularization', type=str, default=None, help='The regularization to use.')
+    parser.add_argument('--colors', type=int, nargs="*", default=[3,4], help='The colors of the blocks in the arena. 3: red, 4: blue, 5: green, 6: yellow, 7: purple.')
+    parser.add_argument('--rate_target', type=str, default=0.5, help='The rate of the target blocks in the arena.')
+    parser.add_argument('--targets', type=int, nargs="*", default=[3], help='The targets and drifts (change of target color) to apply. 3: red, 4: blue, 5: green, 6: yellow, 7: purple.')
+    parser.add_argument('--evals', type=int, default=1, help='Number of environments to evaluate the fitness.')
+    parser.add_argument('--regularization', type=str, default=None, help='The type regularization to use.')
     parser.add_argument('--lambdas', type=float, nargs="*", default=None, help='The weight regularization parameter.')
     parser.add_argument('--eval_retention', type=str, nargs="*", default=None, help='The evaluation retention strategy.')
     parser.add_argument('--seed', type=int, default=0,help='The seed for the random number generator.')
@@ -81,11 +81,10 @@ if __name__ == "__main__":
         raise ValueError("Number of agents must be greater than 0")
     if args.blocks <= 0:
         raise ValueError("Number of blocks must be greater than 0")
-    if args.colors <= 0:
-        raise ValueError("Number of colors must be greater than 0")
-    if args.distribution not in ["uniform", "biased"]:
-        raise ValueError("Distribution must be one of: uniform or biased")
-    if args.n_env <= 0:
+    for color in args.colors:
+        if color not in [3, 4, 5, 6, 7]:
+            raise ValueError("Color must be one of: 3, 4, 5, 6, 7 (representing the color of the blocks red, blue, green, yellow, purple)")
+    if args.evals <= 0:
         raise ValueError("Number of environments must be greater than 0")
     if args.regularization is not None and args.regularization not in ["gd", "wp", "genetic_distance", "weight_protection", "functional"]:
         raise ValueError("Regularization must be one of: gd, wp, genetic_distance, weight_protection, functional")
@@ -107,12 +106,6 @@ if __name__ == "__main__":
             raise ValueError("Functional needs 1 lambda")
         if len(args.lambdas) != 2 and args.regularization == "wp":
             raise ValueError("Weight protection needs 2 lambdas")
-    if args.regularization == "gd":
-        args.lambdas = {"gd" : args.lambdas[0]}
-    elif args.regularization == "wp":
-        args.lambdas = {"wp" : args.lambdas}
-    elif args.regularization == "functional":
-        args.lambdas = {"functional" : args.lambdas[0]}
     if args.seed < 0:
         raise ValueError("Seed must be greater than or equal to 0")
     if args.workers <= 0:
@@ -126,12 +119,11 @@ if __name__ == "__main__":
         args.agents, 
         args.blocks, 
         args.colors,
-        args.distribution,
         args.targets,
-        args.n_env,
+        args.evals,
         args.eval_retention,
         args.regularization,
-        args.lambdas,
+        args.lambdas[0], #TODO
         args.seed,
         args.workers,
         )
