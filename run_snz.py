@@ -10,8 +10,6 @@ def main(name,
         population_size,
         n_agents, 
         n_blocks,
-        colors,
-        drifts,
         n_envs,
         eval_retention,
         regularization,
@@ -21,11 +19,11 @@ def main(name,
         workers, 
         ):
 
+    colors = [3, 4, 5, 6]
     env = SwarmForagingEnv(n_agents = n_agents, n_blocks = n_blocks, colors=colors,
-                           target_color=drifts[0], duration=steps)
-    # initial_state, _ = env.reset(seed=seed)
-    
-    # config_path_neat = "config-feedforward.txt"
+                           target_color=3, duration=steps,
+                           season_colors=[3,4])
+
     # Set configuration file
     config_neat = neat.config.Config(neat.DefaultGenome, neat.DefaultReproduction,
                                 neat.DefaultSpeciesSet, neat.DefaultStagnation, config_path)
@@ -41,15 +39,23 @@ def main(name,
                                     n_envs=n_envs,
                                     seed=seed,
                                     n_workers = workers)
-
+    # Season 1
     experiment.run(generations)
     
-    for drift in drifts[1:]:
-        experiment.drift(drift)
-        experiment.run(generations,
-                       eval_retention=eval_retention, #TODO: maybe rename
-                       regularization_type=regularization,
-                       regularization_coefficient=lambdas)
+    # Season 2
+    experiment.drift([5,6], 5)
+    experiment.run(generations,
+                    eval_retention=eval_retention, 
+                    regularization_type=regularization,
+                    regularization_coefficient=lambdas)
+    # Season 3
+    experiment.drift([3,4], 3)
+    experiment.run(generations,
+                    eval_retention=eval_retention,
+                    regularization_type=regularization,
+                    regularization_coefficient=lambdas)
+    
+
         
 if __name__ == "__main__":
 
@@ -60,9 +66,6 @@ if __name__ == "__main__":
     parser.add_argument('--population', type=int, default=300,help='The size of the population for the evolutionary algorithm.')
     parser.add_argument('--agents', type=int, default=5,help='The number of agents in the arena.')
     parser.add_argument('--blocks', type=int, default=20,help='The number of blocks in the arena.')
-    parser.add_argument('--colors', type=int, nargs="*", default=[3,4], help='The colors of the blocks in the arena. 3: red, 4: blue, 5: green, 6: yellow, 7: purple.')
-    parser.add_argument('--rate_target', type=str, default=0.5, help='The rate of the target blocks in the arena.')
-    parser.add_argument('--targets', type=int, nargs="*", default=[3], help='The targets and drifts (change of target color) to apply. 3: red, 4: blue, 5: green, 6: yellow, 7: purple.')
     parser.add_argument('--evals', type=int, default=1, help='Number of environments to evaluate the fitness.')
     parser.add_argument('--regularization', type=str, default=None, help='The type regularization to use.')
     parser.add_argument('--lambdas', type=float, nargs="*", default=None, help='The weight regularization parameter.')
@@ -82,17 +85,10 @@ if __name__ == "__main__":
         raise ValueError("Number of agents must be greater than 0")
     if args.blocks <= 0:
         raise ValueError("Number of blocks must be greater than 0")
-    for color in args.colors:
-        if color not in [3, 4, 5, 6, 7]:
-            raise ValueError("Color must be one of: 3, 4, 5, 6, 7 (representing the color of the blocks red, blue, green, yellow, purple)")
     if args.evals <= 0:
         raise ValueError("Number of environments must be greater than 0")
     if args.regularization is not None and args.regularization not in ["gd", "wp", "genetic_distance", "weight_protection", "functional"]:
         raise ValueError("Regularization must be one of: gd, wp, genetic_distance, weight_protection, functional")
-    if args.targets is not None:
-        for t in args.targets:
-            if t not in [3, 4, 5, 6, 7]:
-                raise ValueError("Drift must be one of: 3, 4, 5, 6, 7 (representing the color of the target red, blue, green, yellow, purple)")
     if args.eval_retention is not None:
         for e in args.eval_retention:
             if e not in ["top", "population", "pop"]:
@@ -120,12 +116,10 @@ if __name__ == "__main__":
         args.population,
         args.agents, 
         args.blocks, 
-        args.colors,
-        args.targets,
         args.evals,
         args.eval_retention,
         args.regularization,
-        args.lambdas, #TODO
+        args.lambdas,
         args.config,
         args.seed,
         args.workers,

@@ -29,7 +29,21 @@ RED = 3
 BLUE = 4
 GREEN = 5
 YELLOW = 6
-PURPLE = 7
+PINK = 7
+WHITE = 8
+CYAN = 9
+BLACK = 10
+
+COLOR_MAP = {
+    RED: "\033[91m",  # Red
+    BLUE: "\033[94m",  # Blue
+    GREEN: "\033[92m",  # Green
+    YELLOW: "\033[93m",  # Yellow
+    PINK: "\033[90m",  # Black
+    WHITE: "\033[97m",  # White
+    CYAN: "\033[96m",  # Cyan
+    BLACK: "\033[95m",  # Pink  
+}
 
 REWARD_PICK = 1
 REWARD_DROP = 2
@@ -52,59 +66,7 @@ ROTATE_NEGATIVE = [3.14159265, 3.14159265, 3.14159265]
 
 # TODO: check for more speed optimization in the code
 class SwarmForagingEnv(gym.Env):
-    """ TODO: redo it and update it in thesis
-    Environment for swarm foraging task.
-    Parameters:
-    - target_color (int): The color of the objective block.
-    - size (int): The size of the square grid.
-    - n_agents (int): The number of agents in the environment.
-    - n_blocks (int): The number of blocks in the environment.
-    - rate_target_block (float): The rate of target blocks in the environment.
-    - n_neighbors (int): The number of neighbors to consider for each agent.
-    - sensor_range (float): The range of the agent's sensors.
-    - max_wheel_velocity (float): The maximum wheel velocity of the agents.
-    - sensitivity (float): How close the agent can get to the block to pick it up.
-    - time_step (float): The time step of the simulation.
-    - duration (int): The maximum number of steps for an episode.
-    - max_retrieves (int): The maximum number of retrieves for an episode.
-    - distribution (str): The distribution type of the block colors.
-    Attributes:
-    - nest (int): The nest location.
-    - drop_zone (int): The drop zone location.
-    - _correct_retrieves (list): List of correct retrieves.
-    - _wrong_retrieves (list): List of wrong retrieves.
-    - agents_location (ndarray): Array of agents' locations.
-    - _agents_carrying (ndarray): Array indicating which block each agent is carrying.
-    - agents_heading (ndarray): Array of agents' headings.
-    - blocks_location (ndarray): Array of blocks' locations.
-    - blocks_color (ndarray): Array of blocks' colors.
-    - _blocks_picked_up (ndarray): Array indicating which agent picked up each block.
-    - _distance_matrix_agent_agent (ndarray): Matrix of distances between agents.
-    - _direction_matrix_agent_agent (ndarray): Matrix of directions between agents.
-    - _distance_matrix_agent_agent (ndarray): Matrix of distances between agents and blocks.
-    - _direction_matrix_agent_block (ndarray): Matrix of directions between agents and blocks.
-    - sensitivity (float): How close to interact.
-    - n_neighbors (int): The number of neighbors to consider for each agent.
-    - _neighbors (ndarray): Array of neighbors detected by each agent.
-    - _previous_neighbors (ndarray): Array of previous neighbors detected by each agent.
-    - sensor_range (float): The range of the agent's sensors.
-    - sensor_angle (int): The angle of the agent's sensors.
-    - max_wheel_velocity (float): The maximum wheel velocity of the agents.
-    - _rewards (ndarray): Array of rewards for each agent.
-    - duration (int): The maximum number of steps for an episode.
-    - _correct_retrieves (list): List of correct retrieves.
-    - _wrong_retrieves (list): List of wrong retrieves.
-    - max_retrieves (int): The maximum number of retrieves for an episode.
-    - current_step (int): The current step of the episode.
-    - _colors_map (dict): Dictionary mapping colors to color codes.
-    - _reset_color (str): The color code to reset the color to default.
-    - n_types (int): The number of types in the environment.
-    Action Space:
-    - Tuple of Box spaces representing the action space for each agent.
-    Observation Space:
-    - Tuple of Dict spaces representing the observation space for each agent.
-    """
-
+    
     def __init__(
             self, 
             target_color = RED,
@@ -119,20 +81,23 @@ class SwarmForagingEnv(gym.Env):
             duration = 500, # Max number of steps for an episode
             max_retrieves = 20, # Max number of retrives for an episode
             colors = [RED, BLUE], # List of colors for the blocks (from RED to n_colors)
-            # distribution = "uniform", # Blocks colors distribution
             rate_target_block = 0.5, # Rate of target blocks
             repositioning = True, # Reposition blocks after each retrieve
             efficency_reward = False, # Reward for efficency (if task is completed before max steps)
             see_other_agents = True, # If agents can see other agents
-            blocks_in_line = False # If blocks are in line
-            # TODO: rate target block
+            blocks_in_line = False, # If blocks are in line
+            season_colors = None
             ):
         
         self.n_colors = len(colors) # Number of colors
+        if season_colors is None:
+            self.season_colors = colors
+        else:
+            self.season_colors = season_colors
         # --- Validate input parameters ---
         for color in colors:
-            if color not in [RED, BLUE, GREEN, YELLOW, PURPLE]:
-                raise ValueError("Invalid color. Choose a color between 3 (red) and 7 (purple)")
+            if color not in COLOR_MAP:
+                raise ValueError(f"Invalid color. Choose a color between {COLOR_MAP.keys()}")
         # No color repetition
         if len(colors) != len(set(colors)):
             raise ValueError("Invalid colors, repetition. Choose different colors")
@@ -160,8 +125,6 @@ class SwarmForagingEnv(gym.Env):
             raise ValueError("Invalid duration. Choose a number greater than 0")
         if max_retrieves < 1:
             raise ValueError("Invalid max retrieves. Choose a number greater than 0")
-        if self.n_colors < 1 or self.n_colors > 5:
-            raise ValueError("Invalid number of colors. Choose a number between 1 and 5")
         # ---------------------------------
 
         # TODO: reorder the parameters
@@ -212,16 +175,8 @@ class SwarmForagingEnv(gym.Env):
         self.max_retrieves = max_retrieves
         self.current_step = 0
         
-        self._colors_map = {
-            RED: "\033[91m",  # Red
-            BLUE: "\033[94m",  # Blue
-            GREEN: "\033[92m",  # Green
-            YELLOW: "\033[93m",  # Yellow
-            PURPLE: "\033[95m",  # Purple
-        }
-        # self._colors_map = {k: v for i, (k, v) in enumerate(self._colors_map.items()) if i < self.n_colors} # Select only the first n_colors
         # Select only the choosen colors
-        self._colors_map = {k: v for k, v in self._colors_map.items() if k in self.colors}
+        self._colors_map = {k: v for k, v in COLOR_MAP.items() if k in self.colors}
         self._reset_color = "\033[0m"  # Resets color to default
         self.n_types = self.n_colors + 1 + 1 + 1 # colors, robot, edge, nothing
         
@@ -287,7 +242,7 @@ class SwarmForagingEnv(gym.Env):
         # Generate colors
         n_target_blocks = int(self.n_blocks * self.rate_target_block)
         blocks_colors[:n_target_blocks] = self.target_color
-        colors_without_target = [color for color in self.colors if color != self.target_color]
+        colors_without_target = [color for color in self.season_colors if color != self.target_color]
         blocks_colors[n_target_blocks:] = self._rng.choice(colors_without_target, self.n_blocks - n_target_blocks)
         # Shuffle the colors
         blocks_colors = self._rng.permutation(blocks_colors)
@@ -391,7 +346,7 @@ class SwarmForagingEnv(gym.Env):
             obs.append({"neighbors" : self._neighbors[i], "heading": self.agents_heading[i], "carrying" : carrying})
         return obs
     
-    def reset(self, seed=None, initial_state=None):
+    def reset(self, seed=None):
         
         self._rng = np.random.default_rng(seed=seed)
                 
@@ -400,20 +355,11 @@ class SwarmForagingEnv(gym.Env):
         self._neighbors = np.zeros((self.n_agents, self.n_neighbors, 3), dtype=float)
         self._previous_neighbors = np.zeros((self.n_agents, self.n_neighbors, 3), dtype=float)
         
-        if initial_state is None:
-            initial_state = self.create_initial_state()
-            self.agents_location = initial_state['agents'].copy()
-            self.agents_heading = initial_state['headings'].copy()
-            self.blocks_location = initial_state['blocks'].copy()
-            self.blocks_color = initial_state['colors'].copy()
-        else:
-            self.agents_location = initial_state['agents'].copy()
-            self.agents_heading = initial_state['headings'].copy()
-            self.blocks_location = initial_state['blocks'].copy()
-            self.blocks_color = initial_state['colors'].copy()
-            self.n_agents = len(self.agents_location)
-            self.n_blocks = len(self.blocks_location)
-            self.n_colors = len(np.unique(self.blocks_color))
+        initial_state = self.create_initial_state()
+        self.agents_location = initial_state['agents'].copy()
+        self.agents_heading = initial_state['headings'].copy()
+        self.blocks_location = initial_state['blocks'].copy()
+        self.blocks_color = initial_state['colors'].copy()
                                                                                                        
         self.current_step = 0
         
@@ -516,8 +462,14 @@ class SwarmForagingEnv(gym.Env):
         
         return observations, reward, done, truncated, info
     
-    def drift(self, colors):
-        self.colors = colors
+    def change_season(self, new_season_colors, new_target_color): # Drift season
+        for new_color in new_season_colors:
+            if new_color not in self.colors:
+                raise ValueError(f"Invalid new season colors. Choose a color between {self.colors}")
+        if new_target_color not in new_season_colors:
+            raise ValueError(f"Invalid new target color. Choose a color from the new season colors list, e.g. {new_season_colors}")
+        self.season_colors = new_season_colors
+        self.target_color = new_target_color
 
     def render(self, verbose = True):
         # Define the size of the visualization grid

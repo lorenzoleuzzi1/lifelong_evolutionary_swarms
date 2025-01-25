@@ -10,22 +10,24 @@ def main(name,
         population_size,
         n_agents, 
         n_blocks,
-        colors,
-        drifts,
         n_envs,
         eval_retention,
-        regularization,
-        lambdas,
         config_path,
+        lambd,
         seed,
         workers, 
         ):
-
-    env = SwarmForagingEnv(n_agents = n_agents, n_blocks = n_blocks, colors=colors,
-                           target_color=drifts[0], duration=steps)
-    # initial_state, _ = env.reset(seed=seed)
     
-    # config_path_neat = "config-feedforward.txt"
+    if lambd is None:
+        reg_type = None
+    else:
+        reg_type = "gd"
+    
+    colors = [3, 4, 5, 6, 7, 8, 9, 10]
+    env = SwarmForagingEnv(n_agents = n_agents, n_blocks = n_blocks, colors=colors,
+                           target_color=3, duration=steps,
+                           season_colors=[3,4])
+
     # Set configuration file
     config_neat = neat.config.Config(neat.DefaultGenome, neat.DefaultReproduction,
                                 neat.DefaultSpeciesSet, neat.DefaultStagnation, config_path)
@@ -41,15 +43,37 @@ def main(name,
                                     n_envs=n_envs,
                                     seed=seed,
                                     n_workers = workers)
-
+    # Season 1
     experiment.run(generations)
     
-    for drift in drifts[1:]:
-        experiment.drift(drift)
-        experiment.run(generations,
-                       eval_retention=eval_retention, #TODO: maybe rename
-                       regularization_type=regularization,
-                       regularization_coefficient=lambdas)
+    # Season 2
+    experiment.drift([5,6], 5)
+    experiment.run(generations, 
+                   eval_retention=eval_retention, 
+                   n_prev_eval_retention=4, 
+                   regularization_type = reg_type,
+                   regularization_coefficient = lambd,
+                   n_prev_models=1)
+    
+    # Season 3
+    experiment.drift([7, 8], 7)
+    experiment.run(generations, 
+                   eval_retention=eval_retention, 
+                   n_prev_eval_retention=4,
+                   regularization_type = reg_type,
+                   regularization_coefficient = lambd, 
+                   n_prev_models=1)
+    
+    # Season 4
+    experiment.drift([9,10], 9)
+    experiment.run(generations, 
+                   eval_retention=eval_retention, 
+                   n_prev_eval_retention=4,
+                   regularization_type = reg_type,
+                   regularization_coefficient = lambd, 
+                   n_prev_models=1)
+    
+
         
 if __name__ == "__main__":
 
@@ -60,14 +84,10 @@ if __name__ == "__main__":
     parser.add_argument('--population', type=int, default=300,help='The size of the population for the evolutionary algorithm.')
     parser.add_argument('--agents', type=int, default=5,help='The number of agents in the arena.')
     parser.add_argument('--blocks', type=int, default=20,help='The number of blocks in the arena.')
-    parser.add_argument('--colors', type=int, nargs="*", default=[3,4], help='The colors of the blocks in the arena. 3: red, 4: blue, 5: green, 6: yellow, 7: purple.')
-    parser.add_argument('--rate_target', type=str, default=0.5, help='The rate of the target blocks in the arena.')
-    parser.add_argument('--targets', type=int, nargs="*", default=[3], help='The targets and drifts (change of target color) to apply. 3: red, 4: blue, 5: green, 6: yellow, 7: purple.')
     parser.add_argument('--evals', type=int, default=1, help='Number of environments to evaluate the fitness.')
-    parser.add_argument('--regularization', type=str, default=None, help='The type regularization to use.')
-    parser.add_argument('--lambdas', type=float, nargs="*", default=None, help='The weight regularization parameter.')
     parser.add_argument('--eval_retention', type=str, nargs="*", default=None, help='The evaluation retention strategy.')
     parser.add_argument('--config', type=str, default="config-feedforward.txt", help='The configuration file for NEAT.')
+    parser.add_argument('--lambda', type=float, default=None, help='The regularization parameter for the fitness.')
     parser.add_argument('--seed', type=int, default=0,help='The seed for the random number generator.')
     parser.add_argument('--workers', type=int, default=1, help='The number of workers to run the algorithm.')
     args = parser.parse_args()
@@ -82,32 +102,12 @@ if __name__ == "__main__":
         raise ValueError("Number of agents must be greater than 0")
     if args.blocks <= 0:
         raise ValueError("Number of blocks must be greater than 0")
-    for color in args.colors:
-        if color not in [3, 4, 5, 6, 7]:
-            raise ValueError("Color must be one of: 3, 4, 5, 6, 7 (representing the color of the blocks red, blue, green, yellow, purple)")
     if args.evals <= 0:
         raise ValueError("Number of environments must be greater than 0")
-    if args.regularization is not None and args.regularization not in ["gd", "wp", "genetic_distance", "weight_protection", "functional"]:
-        raise ValueError("Regularization must be one of: gd, wp, genetic_distance, weight_protection, functional")
-    if args.targets is not None:
-        for t in args.targets:
-            if t not in [3, 4, 5, 6, 7]:
-                raise ValueError("Drift must be one of: 3, 4, 5, 6, 7 (representing the color of the target red, blue, green, yellow, purple)")
     if args.eval_retention is not None:
         for e in args.eval_retention:
             if e not in ["top", "population", "pop"]:
                 raise ValueError("Evaluation retention must be one of: top or population / pop")
-    if args.lambdas is not None:
-        for l in args.lambdas:
-            if l < 0:
-                raise ValueError("Lambda must be greater than or equal to 0")
-        if len(args.lambdas) != 1 and args.regularization == "gd":
-            raise ValueError("Genetic distance needs 1 lambda")
-        if len(args.lambdas) != 1 and args.regularization == "functional":
-            raise ValueError("Functional needs 1 lambda")
-        if len(args.lambdas) != 2 and args.regularization == "wp":
-            raise ValueError("Weight protection needs 2 lambdas")
-        args.lambdas = args.lambdas[0]
     if args.seed < 0:
         raise ValueError("Seed must be greater than or equal to 0")
     if args.workers <= 0:
@@ -120,13 +120,10 @@ if __name__ == "__main__":
         args.population,
         args.agents, 
         args.blocks, 
-        args.colors,
-        args.targets,
         args.evals,
         args.eval_retention,
-        args.regularization,
-        args.lambdas, #TODO
         args.config,
+        args.lambd,
         args.seed,
         args.workers,
         )

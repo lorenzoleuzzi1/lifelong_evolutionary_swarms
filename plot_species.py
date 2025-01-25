@@ -24,7 +24,7 @@ def plot_species(experiment_paths, experiment_name, y):
         [seed3_static, seed3_drift1, seed1_drift2, ...],
     }
     """
-    if y != "size":
+    if y != "size" and y != "n_species":
         y_index = y_index_map[y]
     # print(drifts)
     y_index = 1
@@ -35,6 +35,36 @@ def plot_species(experiment_paths, experiment_name, y):
                              same number of drifts. {len(d)} != {len(experiment_paths[0])}")
     n_drifts = len(experiment_paths[0])
 
+
+    if y == "n_species":
+        n_species_perseed = []
+        # Plot number of species at each generations
+        for i in range(n_seeds):
+            n_species = []
+            for j in range(n_drifts):
+                
+                with open(experiment_paths[i][j] + "/logbook_species.json", "r") as f:
+                    log_species = json.load(f)
+                
+                for gen in log_species:
+                    n_species.append(len(gen))
+            plt.plot(n_species, alpha=0.1, color='#D95319')
+            n_species_perseed.append(n_species)
+        
+        mean_n_species = np.mean(n_species_perseed, axis=0)
+        plt.axvline(x=200, linestyle = '--', color='grey')
+        plt.axvline(x=400, linestyle = '--', color='grey')
+        plt.plot(mean_n_species, color='#D95319')
+        plt.xlabel('Generations')
+        plt.ylabel("Number of Species")
+        plt.ylim(0, 10)
+        plt.yticks(range(0, 11))
+        # Save
+        plt.savefig(f"{experiment_name}/{y}.png")
+        plt.close()
+
+        return
+
     # Iterate thru the experiment instances (seeds)
     for i in range(n_seeds):
 
@@ -44,7 +74,7 @@ def plot_species(experiment_paths, experiment_name, y):
         generations_counter = 0
         log_to_plot = {}
         generations_to_plot = {}
-
+        log_n_species_to_plot = []
         # Iterate thru the drifts
         for j in range(n_drifts):
             if j != 0:
@@ -65,7 +95,6 @@ def plot_species(experiment_paths, experiment_name, y):
                     for genome_in_that_species in gen_species[species]:
                         dict_gen[species][genome_in_that_species] = gen[genome_in_that_species]
                 log_full.append(dict_gen)
-
             
             # Lets plot the species
             for gen in log_full:
@@ -77,6 +106,7 @@ def plot_species(experiment_paths, experiment_name, y):
                         log_to_plot[species].append(len(gen[species]))
                         generations_to_plot[species].append(generations_counter)
                         continue
+
                     # do the average of y_index
                     # Check if the len of the list has the y index
                     if len(gen[species][list(gen[species].keys())[0]]) <= y_index:
@@ -151,11 +181,11 @@ if __name__ == "__main__":
     parser.add_argument('y', type=str, help=f'The name of the y axis. Must be in fitness or size.')
     # seeds = range(10)
     # Define the directory containing the files
-    results_path = os.path.abspath("/Users/lorenzoleuzzi/Library/CloudStorage/OneDrive-UniversityofPisa/lifelong_evolutionary_swarms/results_")
+    results_path = os.path.abspath("/Users/lorenzoleuzzi/Library/CloudStorage/OneDrive-UniversityofPisa/lifelong_evolutionary_swarms/results_gecco4")
     # results_path = "results"
     experiments_name = parser.parse_args().experiment_name
     y = parser.parse_args().y
-    if y not in ["fitness", "size", "retention", "adjusted_fitness"]:
+    if y not in ["fitness", "size", "retention", "adjusted_fitness", "n_species"]:
         raise ValueError("y must be in fitness or size")
     
     print(f"Plotting species {y} for {experiments_name}")

@@ -9,13 +9,18 @@ import pandas as pd
 import os
 import re
 from utils import load_logbook_json, load_experiment_json
-
+N_PREVS = 1
+NO_PENALTY = "best_no_penalty" # "best_no_penalty" "no_penalty"
+PREV_TARGETS = "prev_target_colors" # "prev_target_colors" "prev_target_color"
 task_color_map = {
     3: "red",
     4: "blue",
     5: "green",
     6: "yellow",
-    7: "purple"
+    7: "purple",
+    8: "white",
+    9: "#0072BD", # cyan
+    10: "black"
 }
 
 color_task_map = {
@@ -23,7 +28,10 @@ color_task_map = {
     "blue": 4,
     "green": 5,
     "yellow": 6,
-    "purple": 7
+    "purple": 7,
+    "white": 8,
+    "#0072BD": 9, # cyan
+    "black": 10
 }
 
 map_title_str = {
@@ -134,23 +142,24 @@ def plot_evolutions_and_drifts(exp_paths, name, retention_type):
             task_colors.append(task_color_map[info["target_color"]])
              
             # Best metrics
-            if True:# log["no_penalty"] == []:
+            # if True:
+            if log[NO_PENALTY] == []:
                 best_whole_curve.extend(log["best"])
                 beefs.append(info["best"])
                 # Plot best
                 plt.plot(range(generations_counters[j], generations_counters[j+1]), 
-                    log["best"], color=task_colors[j], alpha=0.2)
+                    log["best"], color=task_colors[j], alpha=0.1)
             else:
-                best_whole_curve.extend(log["no_penalty"])
-                beefs.append(log["no_penalty"][-1])
+                best_whole_curve.extend(log[NO_PENALTY])
+                beefs.append(log[NO_PENALTY][-1])
                 # Plot best
                 plt.plot(range(generations_counters[j], generations_counters[j+1]),
-                    log["no_penalty"], color=task_colors[j], alpha=0.2)
+                    log[NO_PENALTY], color=task_colors[j], alpha=0.1)
             
             if j > 0:
                 
                 if retention_type is not None:
-                    for prev_target in info["prev_target_color"]:
+                    for prev_target in info[PREV_TARGETS][-N_PREVS:]:
                         if log[f"retention_{retention_type}_{prev_target}"] == []:
                             print(j, retention_type, log[f"retention_{retention_type}"])
                             raise ValueError(f"Retention type {retention_type} not found in the logbook.")
@@ -162,7 +171,7 @@ def plot_evolutions_and_drifts(exp_paths, name, retention_type):
                         forgettings[prev_target].append(beefs[-2] - reefs[prev_target][-1])
 
                         plt.plot(range(generations_counters[j], generations_counters[j+1] + 10, 10), # TODO: change 10 with the frequency of eval
-                                log[f"retention_{retention_type}_{prev_target}"], linestyle='-.', color=task_color_map[prev_target], alpha=0.2)
+                                log[f"retention_{retention_type}_{prev_target}"], linestyle='-.', color=task_color_map[prev_target], alpha=0.1)
                 
         
         best_whole_curves_perseed.append(best_whole_curve) # For plotting the mean
@@ -170,7 +179,7 @@ def plot_evolutions_and_drifts(exp_paths, name, retention_type):
         avg_beef_seed.append(np.mean(beefs))
         beefs_seed.append(beefs)
 
-        for prev_target in info["prev_target_color"]:
+        for prev_target in info[PREV_TARGETS]:
             retention_whole_curves_perseed[prev_target].append(retention_whole_curve[prev_target]) # For plotting the mean
             reefs_seed[prev_target].append(reefs[prev_target])
             forgetting_seed[prev_target].append(forgettings[prev_target])
@@ -185,7 +194,8 @@ def plot_evolutions_and_drifts(exp_paths, name, retention_type):
         6 : [],
         7 : []
     }
-    for prev_target in info["prev_target_color"]:
+    
+    for prev_target in info[PREV_TARGETS]:
         mean_retention_whole_curves_perseed[prev_target] = np.mean(retention_whole_curves_perseed[prev_target], axis = 0)
     
     # mean_retention_whole_curves_perseed = np.mean(retention_whole_curves_perseed, axis = 0)
@@ -211,7 +221,7 @@ def plot_evolutions_and_drifts(exp_paths, name, retention_type):
         plt.plot(drift_best_generations_range, mean_best_to_plot, color=task_colors[i])
         
         if i != 0 and retention_type is not None:
-            for prev_target in retention_task_color:
+            for prev_target in retention_task_color[-N_PREVS:]:
                 len_retentions = 21 # int(len(mean_retention_whole_curves_perseed[prev_target]) / (n_drifts-1)) # TODO: 10 frequency param
 
                 drift_retention_generations_range = range(generations_counters[i], generations_counters[i+1]+10, 10)
@@ -234,6 +244,9 @@ def plot_evolutions_and_drifts(exp_paths, name, retention_type):
 
     plt.xlabel("Generation", fontsize=14)
     plt.ylabel("Fitness", fontsize=14)
+
+    # set y axis
+    plt.ylim(0, 40)
     
     if retention_type is not None:
         plt.savefig(f"{name}/experiment_plot_retention_{retention_type}.png", bbox_inches='tight')
@@ -247,7 +260,7 @@ def plot_evolutions_and_drifts(exp_paths, name, retention_type):
     # Save the metrics in a csv
     # Every row is a seed and the columns are the metrics
     columns = ["Name", "baf", "avg_bef", "avg_ref", "avg_f"] 
-    for prev_target in info["prev_target_color"]:
+    for prev_target in info[PREV_TARGETS]:
         columns.append(f"avg_ref_{task_color_map[prev_target]}")
         columns.append(f"avg_f_{task_color_map[prev_target]}")
     
@@ -256,7 +269,7 @@ def plot_evolutions_and_drifts(exp_paths, name, retention_type):
         
         columns.append(f"evo{i+1}_bef")
         if i > 0:
-            for prev_target in csv_retention:
+            for prev_target in csv_retention[-N_PREVS:]:
                 columns.append(f"evo{i+1}_ref_{task_color_map[prev_target]}")
                 columns.append(f"evo{i+1}_f_{task_color_map[prev_target]}")
         
@@ -271,11 +284,11 @@ def plot_evolutions_and_drifts(exp_paths, name, retention_type):
 
         avg_ref = 0
         avg_f = 0
-        for prev_target in info["prev_target_color"]:
+        for prev_target in info[PREV_TARGETS]:
             avg_ref += np.mean(reefs_seed[prev_target][i])
             avg_f += np.mean(forgetting_seed[prev_target][i])
-        row.append(avg_ref / len(info["prev_target_color"]))
-        row.append(avg_f / len(info["prev_target_color"]))
+        row.append(avg_ref / len(info[PREV_TARGETS]))
+        row.append(avg_f / len(info[PREV_TARGETS]))
         
         csv_prev_targets = []
         counter_colors = {
@@ -286,14 +299,14 @@ def plot_evolutions_and_drifts(exp_paths, name, retention_type):
             7 : 0
         }
 
-        for prev_targets in info["prev_target_color"]:
+        for prev_targets in info[PREV_TARGETS]:
             row.append(np.mean(reefs_seed[prev_targets][i]))
             row.append(np.mean(forgetting_seed[prev_targets][i]))
 
         for j in range(n_drifts):
             row.append(beefs_seed[i][j])
             if j > 0:
-                for prev_target in csv_prev_targets:
+                for prev_target in csv_prev_targets[-N_PREVS:]:
                     if reefs_seed[prev_target][i] != []:
                         row.append(reefs_seed[prev_target][i][counter_colors[prev_target]])
                         row.append(forgetting_seed[prev_target][i][counter_colors[prev_target]])
@@ -328,7 +341,7 @@ if __name__ == "__main__":
     parser.add_argument('--retention_type', '-ret', type=str, default=None, help=f'The type of retention to plot.')
     # seeds = range(10)
     # Define the directory containing the files
-    results_path = os.path.abspath("/Users/lorenzoleuzzi/Library/CloudStorage/OneDrive-UniversityofPisa/lifelong_evolutionary_swarms/results_gecco2")
+    results_path = os.path.abspath("/Users/lorenzoleuzzi/Library/CloudStorage/OneDrive-UniversityofPisa/lifelong_evolutionary_swarms/results_gecco4")
     # results_path = "results"
     experiments_name = parser.parse_args().experiment_name
     retention_type = parser.parse_args().retention_type
