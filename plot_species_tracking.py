@@ -33,6 +33,9 @@ def plot_tracking(drifts_directories):
                 species[species_id].append(k + gen_counter)
         
         gen_counter += len(log_species)
+        
+        if gen_counter == 400:
+            break
     
     # Plot species tracking
     # x is the generation
@@ -42,13 +45,14 @@ def plot_tracking(drifts_directories):
         plt.plot(species[species_id], y, color='#11978D')
     
     plt.axvline(x=200, linestyle = '--', color='grey')
-    plt.axvline(x=400, linestyle = '--', color='grey')
+    # plt.axvline(x=400, linestyle = '--', color='grey')
 
-    plt.xlabel('Generations')
-    plt.ylabel("Species ID")
+    plt.xlabel('Generations', fontsize=14)
+    plt.ylabel("Species ID", fontsize=14)
     plt.yticks([0, len(species)-1])
     # Resize to be shorter and longer not squared
-    plt.gcf().set_size_inches(6, 7)
+    # plt.gcf().set_size_inches(6, 7)
+    plt.gcf().set_size_inches(6, 5)
     plt.savefig(f"{drifts_directories[0]}/species_tracking.png")
 
 
@@ -58,6 +62,7 @@ if __name__ == "__main__":
     
     # experiment_run = f"{results_path}/reg_gd_snz_11/11/seed13"
     experiment_run = f"{results_path}/snz_baselines/neat_500_200_300_5_20_10/seed13"
+    experiment_run = f"{results_path}/reg_gd_snz_11/11/seed13"
 
     print(f"Plotting species tracking from \n {experiment_run}")
 

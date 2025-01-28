@@ -30,7 +30,7 @@ def create_gif(images, gif_path, duration=0.1, loop=0):
             loop=loop
         )
 
-def visual_grid_to_image(visual_grid):
+def visual_grid_to_image(visual_grid, blocks_info = None):
     # Define the size of each cell in the image
     cell_size = 20
     img_size = (len(visual_grid) * cell_size, len(visual_grid[0]) * cell_size)
@@ -39,15 +39,16 @@ def visual_grid_to_image(visual_grid):
     img = Image.new("RGB", img_size, "white")
     draw = ImageDraw.Draw(img)
 
-    # Define colors
+    # Define colors: red, blue, green, yellow, purple, white, cyan, black
     colors = {
         "\033[91m": (255, 0, 0),    # Red
         "\033[94m": (0, 0, 255),    # Blue
         "\033[92m": (0, 255, 0),    # Green
         "\033[93m": (255, 255, 0),  # Yellow
         "\033[95m": (128, 0, 128),  # Purple
-        "\033[33m": (255, 165, 0),  # Orange
-        "\033[90m": (169, 169, 169) # Dark Gray
+        "\033[0m": (255, 255, 255), # White
+        "\033[96m": (0, 255, 255),  # Cyan
+        "\033[30m": (0, 0, 0)       # Black
     }
 
     # Draw the grid
@@ -68,6 +69,9 @@ def visual_grid_to_image(visual_grid):
                         [x * cell_size, y * cell_size, (x + 1) * cell_size, (y + 1) * cell_size],
                         fill=color
                     )
+    if blocks_info != None:
+        # Write on top of the image the number of correct and wrong blocks 
+        draw.text((0, 0), f"Correct: {blocks_info[0]} Wrong: {blocks_info[1]}", fill=(0, 0, 0))
 
     return img
 

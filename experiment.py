@@ -96,6 +96,9 @@ class LifelongEvoSwarmExperiment:
         # Load the population
         with open(folder_path + '/population.pkl', 'rb') as f:
             self.population = pickle.load(f)
+        # Load neat config
+        with open(folder_path + '/neat_config.pkl', 'rb') as f:
+            self.config_neat = pickle.load(f)
         # Set attributes
         self.steps = experiment["duration"]
         self.population_size = experiment["population_size"]
@@ -106,9 +109,11 @@ class LifelongEvoSwarmExperiment:
         self.target_color = experiment["target_color"]
         self.prev_target_colors = experiment["prev_target_colors"]
         # self.prev_target = experiment["target_color"]
-        # Other loads
-        with open(folder_path + '/neat_config.pkl', 'rb') as f:
-            self.config_neat = pickle.load(f)
+        # If present load prev envs
+        if "prev_envs.pkl" in os.listdir(folder_path):
+            with open(folder_path + '/prev_envs.pkl', 'rb') as f:
+                self.prev_envs = pickle.load(f)
+        
 
     def drift(self, new_colors, new_target):
         # TODO: validate if we are calling this dirft method properly
@@ -576,7 +581,7 @@ class LifelongEvoSwarmExperiment:
             pickle.dump(self.prev_models, f)
         # Save prev envs as pickle
         with open(f"results/{self.experiment_name}/prev_envs.pkl", "wb") as f:
-            pickle.dump(self.prev_models, f)
+            pickle.dump(self.prev_envs, f)
         # Save the neat config file
         with open(f"results/{self.experiment_name}/neat_config.pkl", "wb") as f:
             pickle.dump(self.config_neat, f)  

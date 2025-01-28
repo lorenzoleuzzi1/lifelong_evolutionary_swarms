@@ -471,7 +471,7 @@ class SwarmForagingEnv(gym.Env):
         self.season_colors = new_season_colors
         self.target_color = new_target_color
 
-    def render(self, verbose = True):
+    def render(self, show_info = False, verbose = True):
         # Define the size of the visualization grid
         vis_grid_size = 20 # Adjust based on desired resolution
 
@@ -506,8 +506,13 @@ class SwarmForagingEnv(gym.Env):
         if verbose:
             for row in visual_grid:
                 print(" ".join(row))
-                      
-        return visual_grid_to_image(visual_grid)
+        
+        if show_info:
+            retrieves_info = (len(self._correct_retrieves), len(self._wrong_retrieves))
+        else:
+            retrieves_info = None
+
+        return visual_grid_to_image(visual_grid, retrieves_info)
         
     def print_observations(self, verbose = True):
         observations_text = ""

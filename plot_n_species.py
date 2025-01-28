@@ -62,7 +62,7 @@ def plot_n_species(experiment_paths_classic, experiment_paths_reg, save_path):
     mean_n_species_r = np.mean(n_species_r_perseed, axis=0)
     plt.axvline(x=200, linestyle = '--', color='grey')
     # plt.axvline(x=400, linestyle = '--', color='grey')
-    plt.plot(mean_n_species_c, color='#11978D', label="Classic")
+    plt.plot(mean_n_species_c, color='#11978D', label="Standard")
     
     plt.plot(r_counter, mean_n_species_r[200:400], color='#D95319', label="Regularized")
     plt.xlabel('Generations', fontsize=14)

@@ -9,7 +9,7 @@ import pandas as pd
 import os
 import re
 from utils import load_logbook_json, load_experiment_json
-N_PREVS = 1
+N_PREVS = 4
 NO_PENALTY = "best_no_penalty" # "best_no_penalty" "no_penalty"
 PREV_TARGETS = "prev_target_colors" # "prev_target_colors" "prev_target_color"
 task_color_map = {
