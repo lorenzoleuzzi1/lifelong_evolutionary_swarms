@@ -14,6 +14,16 @@ import copy
 import multiprocessing
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
+color_map = {
+    3: "red",
+    4: "blue",
+    5: "green",
+    6: "yellow",
+    7: "purple",
+    8: "white",
+    9: "cyan",
+    10: "black"
+}
 FREQUENCY_EVAL_RETENTION = 10
 
 # TODO: dont save all the info for deap, just neat handles drifts
@@ -23,7 +33,7 @@ FREQUENCY_EVAL_RETENTION = 10
 # TODO: make a separte class only for NEAT
 
 class LifelongEvoSwarmExperiment:
-
+    # TODO: we dont load
     def __init__(self,
                 name : str = None,
                 population_size : int = None,
@@ -76,49 +86,10 @@ class LifelongEvoSwarmExperiment:
         random.seed(self.seed)
         np.random.seed(self.seed)
     
-    def load(self, folder_path):
-        # TODO: check all of this... we might need to load more, but for now we are not using this
-        # Print files in the path
-        print(f"Loading experiment from {folder_path}")
-        print(os.listdir(folder_path))
-        # Load env 
-        with open(folder_path + '/env.pkl', 'rb') as f:
-            self.env = pickle.load(f)
-        # Load the best genome
-        with open(folder_path + '/best_genome.pkl', 'rb') as f:
-            self.best_individual = pickle.load(f)
-        # Load the logbook
-        with open(folder_path + '/logbook.json', 'r') as f:
-            self.log = json.load(f)
-        # Load the experiment json
-        with open(folder_path + '/experiment.json', 'r') as f:
-            experiment = json.load(f)
-        # Load the population
-        with open(folder_path + '/population.pkl', 'rb') as f:
-            self.population = pickle.load(f)
-        # Load neat config
-        with open(folder_path + '/neat_config.pkl', 'rb') as f:
-            self.config_neat = pickle.load(f)
-        # Set attributes
-        self.steps = experiment["duration"]
-        self.population_size = experiment["population_size"]
-        self.experiment_name = experiment["name"]
-        self.name = experiment["name"].split("_")[0]
-        self.time_elapsed = experiment["time"]
-        self.seed = experiment["seed"]
-        self.target_color = experiment["target_color"]
-        self.prev_target_colors = experiment["prev_target_colors"]
-        # self.prev_target = experiment["target_color"]
-        # If present load prev envs
-        if "prev_envs.pkl" in os.listdir(folder_path):
-            with open(folder_path + '/prev_envs.pkl', 'rb') as f:
-                self.prev_envs = pickle.load(f)
-        
-
     def drift(self, new_colors, new_target):
         # TODO: validate if we are calling this dirft method properly
         
-        self.experiment_name = f"{self.experiment_name}_drift{self.target_color}{new_target}"
+        self.experiment_name = f"{self.experiment_name}_{color_map[new_target]}" # Add the new target color to the name
 
         # Save the best individual and the environment from previous drift
         self.prev_models.append(copy.deepcopy(self.best_individual))
@@ -139,6 +110,7 @@ class LifelongEvoSwarmExperiment:
             "median": [],
             "std": []
         }
+
         for prev_target in self.prev_target_colors[-self.n_prev_eval_retention:]:
             self.logbook_summary[f"retention_top_{prev_target}"] = []
             self.logbook_summary[f"id_retention_top_{prev_target}"] = []
@@ -295,6 +267,7 @@ class LifelongEvoSwarmExperiment:
                 
                 for prev_env in self.prev_envs[-self.n_prev_eval_retention:]:
                     prev_target = prev_env.target_color
+                    print("prev_env", prev_target)
                     
                     if "population" in self.eval_retention or "pop" in self.eval_retention:
                         eval_genomes = copy.deepcopy(genomes)
@@ -322,8 +295,8 @@ class LifelongEvoSwarmExperiment:
                                 population_stats[genome_id][f"retention_{prev_target}_std"] = retention_std # add retention to stats
                         else:
                             # Sequential evaluation
-                            for _, genome in eval_genomes:
-                                retention_fitness, _ = self._evaluate_genome(genome, config, prev_env, env_seeds_r)
+                            for genome_id, genome in eval_genomes:
+                                retention_fitness, _, retention_std = self._evaluate_genome(genome, config, prev_env, env_seeds_r)
                                 genome.fitness = retention_fitness
                                 population_stats[genome_id][f"retention_{prev_target}"] = retention_fitness # add retention to stats
                                 population_stats[genome_id][f"retention_{prev_target}_std"] = retention_std # add retention to stats
@@ -374,7 +347,7 @@ class LifelongEvoSwarmExperiment:
         self.time_elapsed = end - start
         self.log = stats
 
-    def run_genome(self, id_genome, env, filename = None, verbose = False):
+    def run_genome(self, id_genome, env, filename = None):
         # TODO: make it prettier
         # TODO: check all this
         if self.env is None:
@@ -391,7 +364,7 @@ class LifelongEvoSwarmExperiment:
         done = False
         total_reward = 0
         obs, _ = env.reset(seed=None)
-        frames.append(env.render(verbose))
+        frames.append(env.render(True,False))
         while True:
             inputs = env.process_observation(obs)
             
@@ -400,7 +373,7 @@ class LifelongEvoSwarmExperiment:
             actions = (2 * outputs - 1) * env.max_wheel_velocity # Scale output sigmoid in range of wheel velocity
 
             obs, reward, done, truncated, info = env.step(actions)
-            frames.append(env.render(verbose))
+            frames.append(env.render(True,False))
             total_reward += reward
 
             if done or truncated:
@@ -550,9 +523,11 @@ class LifelongEvoSwarmExperiment:
                 test_stats[f"retention_top_correct_retrieves_{prev_target}"] /= self.n_envs
                 test_stats[f"retention_top_wrong_retrieves_{prev_target}"] /= self.n_envs
             if self.eval_retention is not None and ("population" in self.eval_retention or "pop" in self.eval_retention):
-                test_stats[f"retention_pop_{prev_target}"] /= self.n_envs
-                test_stats[f"retention_pop_correct_retrieves_{prev_target}"] /= self.n_envs
-                test_stats[f"retention_pop_wrong_retrieves_{prev_target}"] /= self.n_envs
+                # If the key is present
+                if f"retention_pop_{prev_target}" in test_stats:
+                    test_stats[f"retention_pop_{prev_target}"] /= self.n_envs
+                    test_stats[f"retention_pop_correct_retrieves_{prev_target}"] /= self.n_envs
+                    test_stats[f"retention_pop_wrong_retrieves_{prev_target}"] /= self.n_envs
         # -------------------------------
         
         # Save the logbooks as json
@@ -596,7 +571,7 @@ class LifelongEvoSwarmExperiment:
             n_prev_eval_retention : int = 1, 
             regularization_type : str = None, 
             regularization_coefficient = None,
-            n_prev_models = 1 ):
+            n_prev_models = 1):
 
         if self.name is None:
             raise ValueError("Name is not set. Set the name of the experiment first.")
@@ -636,7 +611,7 @@ class LifelongEvoSwarmExperiment:
         if self.experiment_name is None:
             self.experiment_name = f"{self.name}" \
                 f"/neat_{self.env.duration}_{generations}_{self.population_size}_{self.env.n_agents}_{self.env.n_blocks}_{self.n_envs}" \
-                f"/seed{self.seed}/static{self.target_color}" # First evolution (no drift - static)
+                f"/seed{self.seed}/{color_map[self.target_color]}" # First evolution (no drift - static)
         
         os.makedirs(f"results/{self.experiment_name}", exist_ok=True) # Create directory for the experiment results
     
@@ -648,7 +623,7 @@ class LifelongEvoSwarmExperiment:
         print(f"Population size: {self.population_size}")
         print(f"Number of agents: {self.env.n_agents}")
         print(f"Number of blocks: {self.env.n_blocks}")
-        print(f"Colors: {self.env.colors} (target color: {self.target_color}, n_colors: {self.env.n_colors})")
+        print(f"Colors: {self.env.colors} (target color: {color_map[self.target_color]}, n_colors: {self.env.n_colors})")
         # print(f"Repositioning: {self.env.repositioning}")
         # print(f"Blocks in line: {self.env.blocks_in_line}")
         print(f"Number of environments for evaluation: {self.n_envs}")

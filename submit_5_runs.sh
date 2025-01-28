@@ -19,6 +19,7 @@ population=300
 n_env=10
 eval_retention="top"
 config="config-feedforward.txt"
+moredrifts=false
 workers=64
 seed1=13
 seed2=17
@@ -28,9 +29,9 @@ seed5=42
 
 # Launching different instances of the python script with different parameters
 echo "Launching Python scripts with different parameters:"
-srun --nodes=1 --ntasks=1 -w ${nodes_array[0]} python3.11 run.py --name $name --generations $generations --population $population --evals $n_env --eval_retention $eval_retention --regularization $reg --lambdas $param --config $config --moredrifts $moredrifts --workers $workers --seed $seed1 &
-srun --nodes=1 --ntasks=1 -w ${nodes_array[1]} python3.11 run.py --name $name --generations $generations --population $population --evals $n_env --eval_retention $eval_retention --regularization $reg --lambdas $param --config $config --moredrifts $moredrifts --workers $workers --seed $seed2 &
-srun --nodes=1 --ntasks=1 -w ${nodes_array[2]} python3.11 run.py --name $name --generations $generations --population $population --evals $n_env --eval_retention $eval_retention --regularization $reg --lambdas $param --config $config --moredrifts $moredrifts --workers $workers --seed $seed3 &
-srun --nodes=1 --ntasks=1 -w ${nodes_array[3]} python3.11 run.py --name $name --generations $generations --population $population --evals $n_env --eval_retention $eval_retention --regularization $reg --lambdas $param --config $config --moredrifts $moredrifts --workers $workers --seed $seed4 &
-srun --nodes=1 --ntasks=1 -w ${nodes_array[4]} python3.11 run.py --name $name --generations $generations --population $population --evals $n_env --eval_retention $eval_retention --regularization $reg --lambdas $param --config $config --moredrifts $moredrifts --workers $workers --seed $seed5 &
+srun --nodes=1 --ntasks=1 -w ${nodes_array[0]} python3.11 run.py --name $name --generations $generations --population $population --evals $n_env --eval_retention $eval_retention --regularization $reg --lambd $param --config $config --moredrifts $moredrifts --workers $workers --seed $seed1 &
+srun --nodes=1 --ntasks=1 -w ${nodes_array[1]} python3.11 run.py --name $name --generations $generations --population $population --evals $n_env --eval_retention $eval_retention --regularization $reg --lambd $param --config $config --moredrifts $moredrifts --workers $workers --seed $seed2 &
+srun --nodes=1 --ntasks=1 -w ${nodes_array[2]} python3.11 run.py --name $name --generations $generations --population $population --evals $n_env --eval_retention $eval_retention --regularization $reg --lambd $param --config $config --moredrifts $moredrifts --workers $workers --seed $seed3 &
+srun --nodes=1 --ntasks=1 -w ${nodes_array[3]} python3.11 run.py --name $name --generations $generations --population $population --evals $n_env --eval_retention $eval_retention --regularization $reg --lambd $param --config $config --moredrifts $moredrifts --workers $workers --seed $seed4 &
+srun --nodes=1 --ntasks=1 -w ${nodes_array[4]} python3.11 run.py --name $name --generations $generations --population $population --evals $n_env --eval_retention $eval_retention --regularization $reg --lambd $param --config $config --moredrifts $moredrifts --workers $workers --seed $seed5 &
 wait # Wait for all background jobs to finish

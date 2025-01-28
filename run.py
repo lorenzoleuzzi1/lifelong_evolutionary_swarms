@@ -23,11 +23,13 @@ def main(name,
         ):
     
     print(f"Running experiment {name}")
-
+    print(moredrifts)
     if lambd is None or lambd == 0:
         regularization = None
-    
-    colors = [3, 4, 5, 6]
+    if moredrifts == False:
+        colors = [3, 4, 5, 6]
+    else:
+        colors = [3, 4, 5, 6, 7, 8, 9, 10]
     env = SwarmForagingEnv(n_agents = n_agents, n_blocks = n_blocks, colors=colors,
                            target_color=3, duration=steps,
                            season_colors=[3,4])
@@ -47,19 +49,18 @@ def main(name,
                                     n_envs=n_envs,
                                     seed=seed,
                                     n_workers = workers)
-    # Season 1
-    print("Task red")
-    experiment.run(generations)
-    
-    # Season 2
-    print("Task green")
-    experiment.drift([5,6], 5)
-    experiment.run(generations,
-                    eval_retention=eval_retention, 
-                    regularization_type=regularization,
-                    regularization_coefficient=lambd)
-    if not moredrifts:
-        # Season 3 come back to red
+    if moredrifts == False:
+        # Season 1
+        print("Task red")
+        experiment.run(generations)
+        # Season 2
+        print("Task green")
+        experiment.drift([5,6], 5)
+        experiment.run(generations,
+                        eval_retention=eval_retention, 
+                        regularization_type=regularization,
+                        regularization_coefficient=lambd)
+        # Season 3
         print("Task red")
         experiment.drift([3,4], 3)
         experiment.run(generations,
@@ -67,6 +68,18 @@ def main(name,
                         regularization_type=regularization,
                         regularization_coefficient=lambd)
     else:
+        # Season 1
+        print("Task red")
+        experiment.run(generations)
+        # Season 2
+        print("Task green")
+        experiment.drift([5,6], 5)
+        experiment.run(generations, 
+                    eval_retention=eval_retention, 
+                    n_prev_eval_retention=retention_n_prev,
+                    regularization_type = regularization,
+                    regularization_coefficient = lambd, 
+                    n_prev_models=reg_n_prevs)
         # Season 3
         print("Task purple")
         experiment.drift([7, 8], 7)
@@ -100,12 +113,12 @@ if __name__ == "__main__":
     parser.add_argument('--blocks', type=int, default=20,help='The number of blocks in the arena.')
     parser.add_argument('--evals', type=int, default=1, help='Number of environments to evaluate the fitness.')
     parser.add_argument('--regularization', type=str, default=None, help='The type regularization to use.')
-    parser.add_argument('--lambd', type=float, nargs="*", default=None, help='The weight regularization parameter.')
+    parser.add_argument('--lambd', type=float, default=None, help='The weight regularization parameter.')
     parser.add_argument('--eval_retention', type=str, nargs="*", default=None, help='The evaluation retention strategy.')
     parser.add_argument('--config', type=str, default="config-feedforward.txt", help='The configuration file for NEAT.')
-    parser.add_argument('--seed', type=int, default=0,help='The seed for the random number generator.')
+    parser.add_argument('--seed', type=int, default=42,help='The seed for the random number generator.')
     parser.add_argument('--workers', type=int, default=1, help='The number of workers to run the algorithm.')
-    parser.add_argument('--moredrifts', type=bool, default=False, help='Whether to run the more drifts experiment.')
+    parser.add_argument('--moredrifts', type=str, choices=['true', 'false'], default='false', help='Wheter to use more drifts or not.')
     parser.add_argument('--retention_n_prev', type=int, default=4, help='The number of previous evaluations to use for retention.')
     parser.add_argument('--reg_n_prevs', type=int, default=1, help='The number of previous models to use for regularization.')
     args = parser.parse_args()
@@ -147,7 +160,7 @@ if __name__ == "__main__":
         args.regularization,
         args.lambd,
         args.config,
-        args.moredrifts,
+        args.moredrifts.lower() == 'true',
         args.retention_n_prev,
         args.reg_n_prevs,
         args.seed,

@@ -39,10 +39,10 @@ COLOR_MAP = {
     BLUE: "\033[94m",  # Blue
     GREEN: "\033[92m",  # Green
     YELLOW: "\033[93m",  # Yellow
-    PINK: "\033[90m",  # Black
+    PINK: "\033[95m",  # Pink
     WHITE: "\033[97m",  # White
     CYAN: "\033[96m",  # Cyan
-    BLACK: "\033[95m",  # Pink  
+    BLACK: "\033[90m",  # Black
 }
 
 REWARD_PICK = 1
