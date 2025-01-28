@@ -13,12 +13,20 @@ def main(name,
         n_envs,
         eval_retention,
         regularization,
-        lambdas,
+        lambd,
         config_path,
+        moredrifts,
+        retention_n_prev,
+        reg_n_prevs,
         seed,
         workers, 
         ):
+    
+    print(f"Running experiment {name}")
 
+    if lambd is None or lambd == 0:
+        regularization = None
+    
     colors = [3, 4, 5, 6]
     env = SwarmForagingEnv(n_agents = n_agents, n_blocks = n_blocks, colors=colors,
                            target_color=3, duration=steps,
@@ -40,26 +48,50 @@ def main(name,
                                     seed=seed,
                                     n_workers = workers)
     # Season 1
+    print("Task red")
     experiment.run(generations)
     
     # Season 2
+    print("Task green")
     experiment.drift([5,6], 5)
     experiment.run(generations,
                     eval_retention=eval_retention, 
                     regularization_type=regularization,
-                    regularization_coefficient=lambdas)
-    # Season 3
-    experiment.drift([3,4], 3)
-    experiment.run(generations,
-                    eval_retention=eval_retention,
-                    regularization_type=regularization,
-                    regularization_coefficient=lambdas)
+                    regularization_coefficient=lambd)
+    if not moredrifts:
+        # Season 3 come back to red
+        print("Task red")
+        experiment.drift([3,4], 3)
+        experiment.run(generations,
+                        eval_retention=eval_retention,
+                        regularization_type=regularization,
+                        regularization_coefficient=lambd)
+    else:
+        # Season 3
+        print("Task purple")
+        experiment.drift([7, 8], 7)
+        experiment.run(generations, 
+                    eval_retention=eval_retention, 
+                    n_prev_eval_retention=retention_n_prev,
+                    regularization_type = regularization,
+                    regularization_coefficient = lambd, 
+                    n_prev_models=reg_n_prevs)
+        
+        # Season 4
+        print("Task cyan")
+        experiment.drift([9,10], 9)
+        experiment.run(generations, 
+                    eval_retention=eval_retention, 
+                    n_prev_eval_retention=retention_n_prev,
+                    regularization_type = regularization,
+                    regularization_coefficient = lambd, 
+                    n_prev_models=reg_n_prevs)
     
 
         
 if __name__ == "__main__":
 
-    parser = argparse.ArgumentParser(description='Evolutionary swarm parameters.')
+    parser = argparse.ArgumentParser(description='Lifelong evolutionary swarms parameters.')
     parser.add_argument('--name', type=str, default="test", help=f'The name of the experiment.')
     parser.add_argument('--steps', type=int, default=500, help='The number of steps of each episode.')
     parser.add_argument('--generations', type=int, default=200,help='The number of generations to run the algorithm.')
@@ -68,11 +100,14 @@ if __name__ == "__main__":
     parser.add_argument('--blocks', type=int, default=20,help='The number of blocks in the arena.')
     parser.add_argument('--evals', type=int, default=1, help='Number of environments to evaluate the fitness.')
     parser.add_argument('--regularization', type=str, default=None, help='The type regularization to use.')
-    parser.add_argument('--lambdas', type=float, nargs="*", default=None, help='The weight regularization parameter.')
+    parser.add_argument('--lambd', type=float, nargs="*", default=None, help='The weight regularization parameter.')
     parser.add_argument('--eval_retention', type=str, nargs="*", default=None, help='The evaluation retention strategy.')
     parser.add_argument('--config', type=str, default="config-feedforward.txt", help='The configuration file for NEAT.')
     parser.add_argument('--seed', type=int, default=0,help='The seed for the random number generator.')
     parser.add_argument('--workers', type=int, default=1, help='The number of workers to run the algorithm.')
+    parser.add_argument('--moredrifts', type=bool, default=False, help='Whether to run the more drifts experiment.')
+    parser.add_argument('--retention_n_prev', type=int, default=4, help='The number of previous evaluations to use for retention.')
+    parser.add_argument('--reg_n_prevs', type=int, default=1, help='The number of previous models to use for regularization.')
     args = parser.parse_args()
     
     if args.steps <= 0:
@@ -93,23 +128,14 @@ if __name__ == "__main__":
         for e in args.eval_retention:
             if e not in ["top", "population", "pop"]:
                 raise ValueError("Evaluation retention must be one of: top or population / pop")
-    if args.lambdas is not None:
-        for l in args.lambdas:
-            if l < 0:
-                raise ValueError("Lambda must be greater than or equal to 0")
-        if len(args.lambdas) != 1 and args.regularization == "gd":
-            raise ValueError("Genetic distance needs 1 lambda")
-        if len(args.lambdas) != 1 and args.regularization == "functional":
-            raise ValueError("Functional needs 1 lambda")
-        if len(args.lambdas) != 2 and args.regularization == "wp":
-            raise ValueError("Weight protection needs 2 lambdas")
-        args.lambdas = args.lambdas[0]
+    if args.lambd is not None:
+        if args.lambd < 0:
+            raise ValueError("Lambda must be greater than or equal to 0")
     if args.seed < 0:
         raise ValueError("Seed must be greater than or equal to 0")
     if args.workers <= 0:
         raise ValueError("Number of workers must be greater than 0")
     
-    #cProfile.run("main(args.name, args.evo, args.steps, args.generations, args.population, args.agents, args.blocks, args.colors, args.distribution, args.targets, args.n_env, args.eval_retention, args.regularization, args.lambdas, args.seed, args.workers)")
     main(args.name, 
         args.steps,
         args.generations, 
@@ -119,8 +145,11 @@ if __name__ == "__main__":
         args.evals,
         args.eval_retention,
         args.regularization,
-        args.lambdas,
+        args.lambd,
         args.config,
+        args.moredrifts,
+        args.retention_n_prev,
+        args.reg_n_prevs,
         args.seed,
         args.workers,
         )
